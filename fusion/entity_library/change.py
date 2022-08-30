@@ -121,6 +121,11 @@ class Change:
         """
         self.id = id or get_new_id()
 
+        # This may be done only in debug mode
+        if (old_state and not isinstance(old_state, Entity)) or \
+                (new_state and not isinstance(new_state, Entity)):
+            raise Exception('Changes can only work with Entity sublasses')
+
         self.old_state = old_state
         self.new_state = new_state
 

@@ -35,4 +35,5 @@ class ViewState(Entity):
         Entity.__setattr__(self, attr_name, value)
 
     def __repr__(self) -> str:
-        return f'{type(self).__name__} view_id={self.view_id}'
+        return (f'<{type(self).__name__} id={self.id}'
+                f'view_id={self.view_id}>')
