@@ -8,8 +8,16 @@ from fusion.entity_library.entity import Entity
 from fusion.helpers import get_new_id
 
 
+def __hash__(self) -> int:
+    return hash(self.view_id)
+
+
 def view_state_type(view_state_class: Any):
-    return entity_type(view_state_class, repr=False)
+    view_state_class = entity_type(view_state_class, repr=False)
+    # Transplant the __hash__ because the dataclasses lib ignores it if it's
+    # inherited from a superclass.
+    view_state_class.__hash__ = __hash__
+    return view_state_class
 
 
 @view_state_type
