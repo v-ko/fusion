@@ -1,4 +1,6 @@
 import fusion
+from fusion.entity_library import entity_type
+from fusion.entity_library.entity import Entity
 from fusion.pubsub import Channel
 from fusion.pubsub.main_loop import NoMainLoop
 
@@ -11,11 +13,16 @@ def test_pubsub():
                       index_key=lambda x: x.id,
                       filter_key=lambda x: x.text != 'NO')
 
+    @entity_type
+    class MockNote(Entity):
+        text: str = ''
+
     expected_notes = []
     all_notes = []
-    for note in ['Yes', 'Blah', 'NO']:
+    for text in ['Yes', 'Blah', 'NO']:
+        note = MockNote(text=text)
         all_notes.append(note)
-        if note != 'NO':
+        if text != 'NO':
             expected_notes.append(note)
 
     expected_on_the_indexed_channel = expected_notes[0]

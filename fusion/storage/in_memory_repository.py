@@ -64,7 +64,7 @@ class InMemoryRepository(Repository):
     def update_one(self, entity: Entity) -> Change:
         old_entity = self.pop_from_cache(entity.gid())
         if not old_entity:
-            raise Exception('Cannot update missing {entity}')
+            raise Exception(f'Cannot update missing {entity}')
 
         self.upsert_to_cache(entity)
         return Change.UPDATE(old_entity, entity)
