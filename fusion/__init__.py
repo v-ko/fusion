@@ -1,3 +1,6 @@
+import importlib.metadata
+__version__ = importlib.metadata.version('python-fusion')
+
 from .logging import get_logger
 from fusion.entity_library import entity_type
 from fusion.entity_library.entity import Entity
