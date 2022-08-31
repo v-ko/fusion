@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "python-fusion"
-version = "0.6.1"
+version = "0.6.2"
 description = "An experimental state manager"
 authors = [{ name = "Petko Dichev", email = "pditchev@gmail.com" }]
 license = { file="LICENSE" }
