@@ -19,6 +19,7 @@ class ActionCall:
     """
     def __init__(self,
                  name: str,
+                 issuer: str,
                  run_state: Union[ActionRunStates,
                                   str] = ActionRunStates.NONE,
                  args: list = None,
@@ -26,11 +27,14 @@ class ActionCall:
                  id: str = None,
                  start_time: float = None,
                  duration: int = -1,
-                 function: Callable | str = None):
+                 function: Callable | str = None,
+                 is_top_level: bool = None):
 
         self.name = name
+        self.issuer = issuer
         self.run_state = None
         self.set_run_state(run_state)
+        self.is_top_level: bool = is_top_level
 
         self.args = args or []
         if not isinstance(self.args, list):
@@ -60,7 +64,7 @@ class ActionCall:
 
     def __repr__(self):
         string = (f'<Action name={self.name} run_state={self.run_state} '
-                  f'id={self.id}')
+                  f'id={self.id} issuer={self.issuer}')
         if self.duration != -1:
             string += f'duration={self.duration:.2f}'
         return string + '>'

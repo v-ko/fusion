@@ -8,7 +8,7 @@ from fusion import Change
 from fusion.change_aggregator import ChangeAggregator
 from fusion.gui.utils.base_provider import BaseUtilitiesProvider
 from fusion.logging import BColors
-from fusion.pubsub import Channel
+from fusion.pubsub import Channel, Subscription
 from fusion.gui import channels
 
 from .actions_library import ActionCall, execute_action
@@ -103,11 +103,11 @@ def log_action_call(action_call: ActionCall):
         msg += f' time={action_call.duration * 1000:.2f}ms'
     log.info(msg)
 
-    actions_log_channel.push(action_call)
+    actions_log_channel.push(action_call.copy())
 
 
 @log.traced
-def on_actions_logged(handler: Callable):
+def on_actions_logged(handler: Callable) -> Subscription:
     """Register a callback to the actions channel. It will be called before and
     after each action call. It's used for user interaction recording.
 
@@ -115,7 +115,7 @@ def on_actions_logged(handler: Callable):
         handler (Callable): The callable to be invoked on each new message on
         the channel
     """
-    actions_log_channel.subscribe(handler)
+    return actions_log_channel.subscribe(handler)
 
 
 def queue_action(action_func, args: list = None, kwargs: dict = None):

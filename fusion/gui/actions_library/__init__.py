@@ -45,18 +45,19 @@ def execute_action(_action):
     # only after the completion of the top-level(=root) action.
     # That way redundant GUI rendering is avoided inside an action that
     # makes multiple update_state calls and/or invokes other actions
+    _action.is_top_level = not gui.is_in_action()
     with gui.action_context(_action):
         # Call the actual function
         return_val = _action.function(*_action.args, **_action.kwargs)
 
     _action.duration = time.time() - _action.start_time
     _action.run_state = ActionRunStates.FINISHED
-    gui.log_action_call(_action.copy())
+    gui.log_action_call(_action)
 
     return return_val
 
 
-def action(name: str):
+def action(name: str, issuer: str = 'user'):
     """A decorator that adds an action state emission on the start and end of
     each function call (via fusion.gui.push_action).
 
@@ -77,13 +78,17 @@ def action(name: str):
 
         @functools.wraps(func)
         def wrapper_action(*args, **kwargs):
-            _action = ActionCall(name, args=list(args), kwargs=kwargs)
+            _action = ActionCall(name,
+                                 issuer=issuer,
+                                 args=list(args),
+                                 kwargs=kwargs)
 
             if fusion.gui.view_and_parent_update_ongoing():
-                log.debug(f'Cannot invoke an action while updating the views.'
-                          f' Queueing {_action} on the main loop.')
-                gui.actions_queue_channel.push(_action)
-                return
+                raise Exception(
+                    'Cannot invoke an action while updating the views.')
+                #   f' Queueing {_action} on the main loop.')
+                # gui.actions_queue_channel.push(_action)
+                # return
 
             return execute_action(_action)
 

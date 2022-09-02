@@ -1,10 +1,14 @@
+"""
+This code is not used ATM. Keeping it because it may have some useful snippets
+about image comparison, etc.
+"""
 import os
 import shutil
 import argparse
 from PIL import Image, ImageChops, ImageStat
 
 import fusion
-from .constants import RECORDING_EXTENSION, SNAP_EXTENSION
+from ..constants import RECORDING_EXTENSION, SNAP_EXTENSION
 from fusion.gui import update_components_from_changes
 from fusion.gui.utils.qt_widgets.qt_main_loop import QtMainLoop
 

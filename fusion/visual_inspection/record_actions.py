@@ -1,5 +1,8 @@
 #!/usr/bin/env python
-
+'''
+Currently not used. Keeping for a while if it turns out I decide to use a CLI
+for the test recording 
+'''
 import signal
 import argparse
 
@@ -37,7 +40,7 @@ def main():
     replay_speed = args.replay_speed
 
     fusion.set_main_loop(QtMainLoop())
-    misli_gui.set_reproducible_ids(True)
+    fusion.gui.set_reproducible_ids(True)
     fusion.on_change(update_components_from_changes)
 
     controller = FusionGuiRecorder('BrowserWindowView', ignored_actions_list)
