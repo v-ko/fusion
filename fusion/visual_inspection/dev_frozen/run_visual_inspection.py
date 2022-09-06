@@ -9,7 +9,7 @@ from PIL import Image, ImageChops, ImageStat
 
 import fusion
 from ..constants import RECORDING_EXTENSION, SNAP_EXTENSION
-from fusion.gui import update_components_from_changes
+from fusion.fsm import update_components_from_changes
 from fusion.platform import QtMainLoop
 
 import pamet
@@ -102,10 +102,8 @@ def main():
 
     for recording in os.scandir(AUTOMATIC_INSPECTION_OUTPUT_PATH):
         snapshots_folder = os.path.join(recording.path, 'snapshots')
-        good_snaps_folder = os.path.join(
-            MANUAL_INSPECTION_OUTPUT_PATH,
-            recording.name,
-            'snapshots')
+        good_snaps_folder = os.path.join(MANUAL_INSPECTION_OUTPUT_PATH,
+                                         recording.name, 'snapshots')
 
         if not os.path.exists(good_snaps_folder):
             print('Manually verified images for %s missing.' % recording.name)
@@ -128,8 +126,8 @@ def main():
                 print('DIFFERENCE %s (>0.001) for "%s" in recording "%s"' %
                       (diff_value, snap_meta, recording.name))
 
-                diff_folder = os.path.join(
-                    DIFF_FOLDER, recording.name, snap_meta)
+                diff_folder = os.path.join(DIFF_FOLDER, recording.name,
+                                           snap_meta)
 
                 if os.path.exists(diff_folder):
                     shutil.rmtree(diff_folder)

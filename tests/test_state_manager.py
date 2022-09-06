@@ -1,10 +1,11 @@
 from dataclasses import field
 import fusion
-from fusion.gui import channels
+from fusion import fsm
+from fusion.libs import action as actions_lib
 from fusion.libs.action import action, wrapped_action_by_name
 from fusion.libs.action.action_call import ActionCall
 from fusion.libs.state import ViewState, view_state_type
-from fusion.main_loop import NoMainLoop
+from fusion.loop import NoMainLoop
 
 
 def test_view_state_updates_and_diffing():
@@ -34,15 +35,15 @@ def test_view_state_updates_and_diffing():
             parent_state.child_states.add(child)
             children.append(child)
 
-            change = fusion.gui.add_state(child)
+            change = fsm.add_state(child)
             expected_raw_state_changes.append(change)
-        change = fusion.gui.update_state(parent_state)
+        change = fsm.update_state(parent_state)
         expected_raw_state_changes.append(change)
 
     @action('create_view_state')
     def create_view_state():
         parent_state = MockViewState()
-        change = fusion.gui.add_state(parent_state)
+        change = fsm.add_state(parent_state)
         expected_raw_state_changes.append(change)
         add_children(parent_state)
         dummy_nested()
@@ -52,10 +53,10 @@ def test_view_state_updates_and_diffing():
     def remove_child(parent_state):
         removed_child = parent_state.child_states.pop()
         children_left.extend(list(parent_state.child_states))
-        change = fusion.gui.remove_state(removed_child)
+        change = fsm.remove_state(removed_child)
         expected_raw_state_changes.append(change)
 
-        change = fusion.gui.update_state(parent_state)
+        change = fsm.update_state(parent_state)
         expected_raw_state_changes.append(change)
         return removed_child
 
@@ -77,11 +78,11 @@ def test_view_state_updates_and_diffing():
 
         assert set(children) == set(change.added.child_states)
 
-    channels.completed_root_actions.subscribe(handle_completed_root_actions)
-    channels.raw_state_changes.subscribe(handle_raw_state_changes)
+    actions_lib.completed_root_actions.subscribe(handle_completed_root_actions)
+    fsm.raw_state_changes.subscribe(handle_raw_state_changes)
 
     parent_state = create_view_state()
-    subscription = channels.state_changes_per_TLA_by_view_id.subscribe(
+    subscription = fsm.state_changes_per_TLA_by_view_id.subscribe(
         handle_state_change, index_val=parent_state.id)
 
     main_loop.process_events()
@@ -94,8 +95,8 @@ def test_view_state_updates_and_diffing():
         assert state.child_states == set(children_left)
 
     subscription.unsubscribe()
-    channels.state_changes_per_TLA_by_view_id.subscribe(
-        handle_state_change, index_val=parent_state.id)
+    fsm.state_changes_per_TLA_by_view_id.subscribe(handle_state_change,
+                                                   index_val=parent_state.id)
     main_loop.process_events()
 
     assert completed_root_level_action_functions == \

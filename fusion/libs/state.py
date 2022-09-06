@@ -2,10 +2,9 @@ from __future__ import annotations
 from dataclasses import field
 from typing import Any
 
-from fusion import entity_type
-from fusion import gui
+from fusion import entity_type, fsm
+from fusion.libs.action import is_in_action
 from fusion.libs.entity import Entity
-from fusion.util import get_new_id
 from fusion.logging import LOGGING_LEVEL, LoggingLevels
 
 
@@ -21,20 +20,11 @@ def view_state_type(view_state_class: Any):
     return view_state_class
 
 
-_last_view_id = 0
-
-
-def get_view_id():
-    global _last_view_id
-    _last_view_id += 1
-    return str(_last_view_id)
-
-
 @view_state_type
 class ViewState(Entity):
     '''Mind putting this class as last inherited when also inheriting from
     an Entity with a custom id field, so the latter does not get overwritten'''
-    view_id: str = field(default_factory=get_view_id)
+    view_id: str = field(default_factory=lambda: fsm.get_view_id())
     _added: bool = field(default=False, init=False, repr=False)
     _version: int = field(default=0, init=False, repr=False)
 
@@ -43,7 +33,7 @@ class ViewState(Entity):
         if LOGGING_LEVEL != LoggingLevels.DEBUG.value:
             return object.__setattr__(self, key, value)
 
-        if self._added and not gui.is_in_action():
+        if self._added and not is_in_action():
             raise Exception('View states can be modified only in actions')
 
         # Allow setting the view id only on init

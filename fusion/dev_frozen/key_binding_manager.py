@@ -3,7 +3,7 @@ from collections import defaultdict
 
 import fusion
 from fusion import Change
-from fusion.gui import Command
+from fusion.fsm import Command
 
 log = fusion.get_logger(__name__)
 
@@ -35,6 +35,7 @@ def process_condition_string(string: str):
 
 
 class KeyBinding:
+
     def __init__(self,
                  key: str,
                  command: Command,
@@ -100,10 +101,12 @@ def first_key_binding_for_command(command: Command):
 
     return bindings[0]
 
+
 def apply_config(key_bindings: List[KeyBinding]):
     if not fusion.gui.util_provider():
-        raise Exception('fusion.configure* must be called (so the util provider'
-                        ' is set) before you can setup shortcuts')
+        raise Exception(
+            'fusion.configure* must be called (so the util provider'
+            ' is set) before you can setup shortcuts')
     new_config = set(key_bindings)
     for_addition = new_config - _bindings
     for_removal = _bindings - new_config

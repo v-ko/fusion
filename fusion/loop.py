@@ -4,12 +4,12 @@ import time
 
 class MainLoop:
     """A main loop base class"""
-    def call_delayed(
-            self,
-            callback: Callable,
-            delay: float = 0,
-            args: list = None,
-            kwargs: dict = None):
+
+    def call_delayed(self,
+                     callback: Callable,
+                     delay: float = 0,
+                     args: list = None,
+                     kwargs: dict = None):
 
         raise NotImplementedError
 
@@ -20,15 +20,15 @@ class MainLoop:
 class NoMainLoop(MainLoop):
     """A MainLoop implementation that relies on calling process_events instead
     of actually initializing a main loop. Used mostly for testing."""
+
     def __init__(self):
         self.callback_stack = []
 
-    def call_delayed(
-            self,
-            callback: Callable,
-            delay: float = 0,
-            args: list = None,
-            kwargs: dict = None):
+    def call_delayed(self,
+                     callback: Callable,
+                     delay: float = 0,
+                     args: list = None,
+                     kwargs: dict = None):
 
         args = args or []
         kwargs = kwargs or {}
@@ -44,3 +44,19 @@ class NoMainLoop(MainLoop):
 
         if self.callback_stack:
             self.process_events()
+
+
+_main_loop = NoMainLoop()
+
+
+def set_main_loop(main_loop: MainLoop):
+    """Swap the main loop that the module uses. That's needed in order to make
+    the GUI swappable (and most frameworks have their own mechanisms).
+    """
+    global _main_loop
+    _main_loop = main_loop
+
+
+def main_loop() -> MainLoop:
+    """Get the main loop object"""
+    return _main_loop

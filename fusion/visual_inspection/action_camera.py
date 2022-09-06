@@ -10,7 +10,7 @@ import fusion
 from fusion.util import Point2D, Rectangle, Color
 from fusion.libs.entity import Entity
 from fusion.libs.action.action_call import ActionCall, ActionRunStates
-from fusion.gui.misli_gui import on_actions_logged
+from fusion.libs.action import on_actions_logged
 from fusion.libs.state import ViewState
 from pamet import desktop_app
 
@@ -49,7 +49,7 @@ class ActionCamera:
         elif isinstance(arg, (bool, int, float)):
             return str(arg)
         elif isinstance(arg, ViewState):
-            return f"view_state('{arg.view_id}')"
+            return f"fsm.view_state('{arg.view_id}')"
         elif isinstance(arg, Entity):
             self.classes_used.add(type(arg))
             kwarg_strings = []
@@ -134,7 +134,7 @@ class ActionCamera:
         code_str = '\n\n'.join(action_call_code_chunks)
         code_for_recording = f'''import pamet
 from fusion.visual_inspection.action_camera import exec_action
-from fusion.gui.misli_gui import view_state
+from fusion import fsm
 
 {imports_str}
 

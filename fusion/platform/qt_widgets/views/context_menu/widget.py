@@ -1,6 +1,6 @@
 from typing import Callable, Union
 from PySide6.QtWidgets import QLabel, QMenu, QWidgetAction
-from PySide6.QtGui import QKeySequence
+from PySide6.QtGui import QCursor, QKeySequence
 from PySide6.QtCore import QPoint, Qt
 
 import fusion
@@ -32,8 +32,8 @@ def add_entries(menu: QMenu, entries):
 
 
 class ContextMenuWidget(QMenu):
-    def __init__(self, parent: str,
-                 entries: dict[str, Union[Command, dict]]):
+
+    def __init__(self, parent: str, entries: dict[str, Union[Command, dict]]):
         QMenu.__init__(self, parent)
 
         add_entries(self, entries)
@@ -44,8 +44,8 @@ class ContextMenuWidget(QMenu):
         fusion.call_delayed(self.popup_on_mouse_pos, 0)
 
     def popup_on_mouse_pos(self):
-        position = fusion.gui.util_provider().mouse_position()
-        self.popup(QPoint(*position.as_tuple()))
+        position = QCursor.pos()
+        self.popup(position)
 
     def hiding(self):
         self.close()

@@ -1,7 +1,7 @@
 import fusion
 from fusion.libs.entity import entity_type, Entity
 from fusion.libs.channel import Channel
-from fusion.main_loop import NoMainLoop
+from fusion.loop import NoMainLoop
 
 
 def test_pubsub():

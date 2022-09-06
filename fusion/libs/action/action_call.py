@@ -4,7 +4,7 @@ from typing import Union, Callable
 from enum import Enum
 
 from fusion.util import get_new_id
-from fusion.libs.action import unwrapped_action_by_name
+from fusion import libs
 
 
 class ActionRunStates(Enum):
@@ -17,11 +17,11 @@ class ActionCall:
     """Mostly functions as a data class to carry the action state, args, kwargs
      and profiling info.
     """
+
     def __init__(self,
                  name: str,
                  issuer: str,
-                 run_state: Union[ActionRunStates,
-                                  str] = ActionRunStates.NONE,
+                 run_state: Union[ActionRunStates, str] = ActionRunStates.NONE,
                  args: list = None,
                  kwargs: dict = None,
                  id: str = None,
@@ -46,13 +46,13 @@ class ActionCall:
         self.start_time = start_time if start_time is not None else time.time()
         self.duration = duration
         if function and isinstance(function, str):
-            function = unwrapped_action_by_name(function)
+            function = libs.action.unwrapped_action_by_name(function)
         self._function = function
 
     @property
     def function(self):
         if not self._function:
-            self._function = unwrapped_action_by_name(self.name)
+            self._function = libs.action.unwrapped_action_by_name(self.name)
 
         return self._function
 

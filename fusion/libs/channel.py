@@ -14,51 +14,12 @@ from typing import Callable, Dict, Any
 from collections import defaultdict
 from enum import Enum
 from dataclasses import MISSING
+import fusion
 
-from fusion.main_loop import MainLoop, NoMainLoop
+from fusion.loop import MainLoop, NoMainLoop
 from fusion import get_logger
 
 log = get_logger(__name__)
-
-# --------------Main loop related-------------------
-_main_loop = NoMainLoop()
-
-
-@log.traced
-def set_main_loop(main_loop: MainLoop):
-    """Swap the main loop that the module uses. That's needed in order to make
-    the GUI swappable (and most frameworks have their own mechanisms).
-    """
-    global _main_loop
-    _main_loop = main_loop
-
-
-def main_loop() -> MainLoop:
-    """Get the main loop object"""
-    return _main_loop
-
-
-def call_delayed(callback: Callable,
-                 delay: float = 0,
-                 args: list = None,
-                 kwargs: dict = None):
-    """Call a function with a delay on the main loop.
-
-    Args:
-        callback (Callable): The callable to be invoked
-        delay (float, optional): The delay in seconds. Defaults to 0.
-        args (list, optional): A list with the arguments. Defaults to None.
-        kwargs (dict, optional): A dictionary with the keyword arguments.
-            Defaults to None.
-    """
-    args = args or []
-    kwargs = kwargs or {}
-
-    if not callback:
-        raise Exception('Callback cannot be None')
-
-    _main_loop.call_delayed(callback, delay, args, kwargs)
-
 
 # --------------Dispatcher related-------------------
 _channels = {}
@@ -127,7 +88,7 @@ class Channel:
 
             log.info(f'Queueing {sub.handler=} for {message=} on'
                      f' channel_name={self.name}')
-            call_delayed(sub.handler, 0, args=[message])
+            fusion.call_delayed(sub.handler, 0, args=[message])
 
     # @log.traced
     def subscribe(self, handler: Callable, index_val: Any = MISSING):
