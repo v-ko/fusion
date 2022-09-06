@@ -49,11 +49,6 @@ def get_new_id(seed=None) -> str:
     return guid
 
 
-def test(item_list: Union[list, dict], **props):
-    print('bla')
-    yield from ['bla', 2]
-
-
 def find_many_by_props(
         item_list: Union[list, dict], **props) -> Generator[Any, None, None]:
     """Filter a list or dict and return only objets which have attributes

@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QApplication
 
 import fusion
 from fusion.basic_classes import Point2D, Rectangle, Color
-from fusion.entity_library.entity import Entity
+from fusion.libs.entity import Entity
 from fusion.gui.actions_library.action import ActionCall, ActionRunStates
 from fusion.gui.misli_gui import on_actions_logged
 from fusion.gui.view_library.view_state import ViewState

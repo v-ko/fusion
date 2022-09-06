@@ -1,8 +1,9 @@
 from ast import Dict
 from typing import List
-from fusion import Change, logging
+from fusion.libs.entity.change import Change
+from fusion.logging import get_logger
 
-log = logging.get_logger(__name__)
+log = get_logger(__name__)
 
 
 class AggregatorSlot:

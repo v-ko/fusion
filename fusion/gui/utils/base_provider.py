@@ -1,4 +1,4 @@
-from fusion.entity_library.entity import Entity
+from fusion.libs.entity import Entity
 
 
 class BaseUtilitiesProvider:

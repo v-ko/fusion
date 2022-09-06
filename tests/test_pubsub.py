@@ -1,6 +1,5 @@
 import fusion
-from fusion.entity_library import entity_type
-from fusion.entity_library.entity import Entity
+from fusion.libs.entity import entity_type, Entity
 from fusion.pubsub import Channel
 from fusion.pubsub.main_loop import NoMainLoop
 

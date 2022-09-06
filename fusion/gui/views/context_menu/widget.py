@@ -4,7 +4,7 @@ from PySide6.QtGui import QKeySequence
 from PySide6.QtCore import QPoint, Qt
 
 import fusion
-from fusion.gui.key_binding_manager import first_key_binding_for_command
+# from fusion.gui.key_binding_manager import first_key_binding_for_command
 from fusion.gui import Command
 
 
@@ -22,7 +22,7 @@ def add_entries(menu: QMenu, entries):
             label_action.setDefaultWidget(label)
             menu.addAction(label_action)
         elif isinstance(command, Callable):
-            binding = first_key_binding_for_command(command)
+            binding = None  # first_key_binding_for_command(command)
             if binding:
                 menu.addAction(name, command, QKeySequence(binding.key))
             else:
@@ -43,12 +43,12 @@ class ContextMenuWidget(QMenu):
         # This should probably be done via a state update
         fusion.call_delayed(self.popup_on_mouse_pos, 0)
 
-    def close(self):
-        self.deleteLater()
-
     def popup_on_mouse_pos(self):
         position = fusion.gui.util_provider().mouse_position()
         self.popup(QPoint(*position.as_tuple()))
 
     def hiding(self):
         self.close()
+
+    def close(self):
+        self.deleteLater()

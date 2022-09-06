@@ -1,4 +1,3 @@
-from email.errors import InvalidMultipartContentTransferEncodingDefect
 from fusion.gui.utils.qt_widgets import bind_and_apply_state
 from fusion.gui.view_library.view import View
 

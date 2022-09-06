@@ -1,6 +1,6 @@
 from typing import Callable
 from PySide6.QtCore import QObject
-from fusion.entity_library.change import Change
+from fusion.libs.entity.change import Change
 from fusion.gui.view_library.view_state import ViewState
 from fusion.gui import channels
 

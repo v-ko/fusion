@@ -39,10 +39,6 @@ from .actions_library import action
 from .view_library.view import View
 from .view_library.view_state import ViewState
 from .view_library.view_state import view_state_type
-from .commands_library.command import Command
-from .commands_library import command
-from . import key_binding_manager
-from .key_binding_manager import KeyBinding
-from .context import Context
+from .commands_library import command, Command
 
-context = Context()
+# context = Context()

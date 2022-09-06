@@ -1,6 +1,6 @@
 from typing import List, Union
 from fusion import Entity
-from fusion.entity_library.change import Change
+from fusion.libs.entity.change import Change
 
 IMMUTABILITY_ERROR_MESSAGE = (
     'Cannot alter an object after it has been added to the '

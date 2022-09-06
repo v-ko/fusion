@@ -1,32 +1,5 @@
-"""The fusion facade offers a pub/sub mechanism to dispatch messages.
-
-It supports adding named channels on which to subscribe handlers and then
+"""It supports adding named channels on which to subscribe handlers and then
 dispatch messages (which are arbitrary python objects).
-
-Example usage with the NoMainLoop implementation (default):
-    import fusion
-
-    fusion.add_channel('main')
-    fusion.subscribe('main', lambda x: print(x))
-    fusion.dispatch(message='Test', channel_name='main')
-    fusion.main_loop().process_events()  # Would not be needed when using a proper main loop
-    # Prints ['Test']
-
-Example usage with Qt:
-    from PySide6.QtWidgets import QApplication
-
-    import fusion
-    from fusion.gui.desktop_app import QtMainLoop
-
-    app = QApplication()
-    fusion.set_main_loop(QtMainLoop())
-
-    fusion.add_channel('main')
-    fusion.subscribe('main', lambda x: print(x))
-    fusion.dispatch(message='Test', channel_name='main')
-
-    app.exec_()
-    # Prints ['Test']
 
 The main loop can be swapped with different implementations in order to
 accomodate different GUI frameworks. The implementations that are actually
