@@ -21,11 +21,16 @@ class ExtensionsLoader:
     def load_all_recursively(self, folder: Path):
         py_files = self.get_py_files(folder)
         for file_path in py_files:
-            if file_path.name == '__init__.py':
+            if file_path.name == 'channel.py':
                 continue
 
             rel_path = file_path.relative_to(self.root_path.parent)
-            module_name = '.'.join(rel_path.parts[:-1] + (rel_path.stem,))
+            module_name = '.'.join(rel_path.parts[:-1])
+
+            # If it's the init file - use the dir name, else - the file name
+            if file_path.stem != '__init__':
+                module_name += '.' + rel_path.stem
+
             if module_name in sys.modules:
                 continue
 

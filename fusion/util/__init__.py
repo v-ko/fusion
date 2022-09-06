@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from .point2d import Point2D
+from .rectangle import Rectangle
+from .color import Color
+
 from contextlib import contextmanager
 from hashlib import md5
 from typing import Generator, Any, List, Union

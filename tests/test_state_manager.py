@@ -1,10 +1,10 @@
 from dataclasses import field
 import fusion
 from fusion.gui import channels
-from fusion.gui.actions_library import action, wrapped_action_by_name
-from fusion.gui.actions_library.action import ActionCall
-from fusion.gui.view_library.view_state import ViewState, view_state_type
-from fusion.pubsub.main_loop import NoMainLoop
+from fusion.libs.action import action, wrapped_action_by_name
+from fusion.libs.action.action_call import ActionCall
+from fusion.libs.state import ViewState, view_state_type
+from fusion.main_loop import NoMainLoop
 
 
 def test_view_state_updates_and_diffing():

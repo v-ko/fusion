@@ -8,7 +8,7 @@ from typing import Any, Generator, Iterable
 
 from fusion import get_logger
 from fusion.libs.entity import dump_to_dict, load_from_dict, Entity
-from fusion.helpers import current_time, get_new_id, timestamp
+from fusion.util import current_time, get_new_id, timestamp
 
 log = get_logger(__name__)
 

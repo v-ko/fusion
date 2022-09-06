@@ -3,8 +3,8 @@ import time
 from typing import Union, Callable
 from enum import Enum
 
-from fusion.helpers import get_new_id
-from fusion.gui.actions_library import unwrapped_action_by_name
+from fusion.util import get_new_id
+from fusion.libs.action import unwrapped_action_by_name
 
 
 class ActionRunStates(Enum):

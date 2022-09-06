@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import fusion
-from .view_state import ViewState
+from fusion.libs.state import ViewState
 
 log = fusion.get_logger(__name__)
 

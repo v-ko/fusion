@@ -7,11 +7,11 @@ from contextlib import contextmanager
 from PySide6.QtWidgets import QApplication
 
 import fusion
-from fusion.basic_classes import Point2D, Rectangle, Color
+from fusion.util import Point2D, Rectangle, Color
 from fusion.libs.entity import Entity
-from fusion.gui.actions_library.action import ActionCall, ActionRunStates
+from fusion.libs.action.action_call import ActionCall, ActionRunStates
 from fusion.gui.misli_gui import on_actions_logged
-from fusion.gui.view_library.view_state import ViewState
+from fusion.libs.state import ViewState
 from pamet import desktop_app
 
 

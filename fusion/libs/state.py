@@ -5,7 +5,7 @@ from typing import Any
 from fusion import entity_type
 from fusion import gui
 from fusion.libs.entity import Entity
-from fusion.helpers import get_new_id
+from fusion.util import get_new_id
 from fusion.logging import LOGGING_LEVEL, LoggingLevels
 
 

@@ -1,6 +1,6 @@
 from typing import Union, Tuple
 
-from fusion.basic_classes import Point2D
+from fusion.util import Point2D
 
 
 class Rectangle:

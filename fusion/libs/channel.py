@@ -15,7 +15,7 @@ from collections import defaultdict
 from enum import Enum
 from dataclasses import MISSING
 
-from fusion.pubsub.main_loop import MainLoop, NoMainLoop
+from fusion.main_loop import MainLoop, NoMainLoop
 from fusion import get_logger
 
 log = get_logger(__name__)

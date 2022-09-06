@@ -2,7 +2,7 @@ from time import sleep
 from typing import Callable
 from PySide6.QtCore import QEventLoop, QTimer
 from PySide6.QtWidgets import QApplication
-from fusion.pubsub.main_loop import MainLoop
+from fusion.main_loop import MainLoop
 
 
 class QtMainLoop(MainLoop):

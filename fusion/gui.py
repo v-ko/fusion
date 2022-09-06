@@ -1,3 +1,37 @@
+"""The fusion.gui module provides basic functionality for handling GUI state
+and updates. The main parts of the fusion based GUI app are Views, their
+respective View Models, and Actions (alternatively called usecases).
+
+View classes are widgets (in Qt) or e.g. React components in web apps.
+Though they are allowed to have a local state - all properties that can be
+changed by other classes or functions should be in their View Model.
+
+Each instance of a view and their view model get registered (automatically)
+    upon creation in fusion.gui. And the only proper way to change a View
+    Model is via fusion.update_view_model(new_model). That method chaches
+    the updated models and in that way unneeded GUI renderings are avoided
+    in the midst of complex user actions. After all action logic is executed -
+    the updated view models are pushed to the views (by invoking their
+    View.handle_model_update virtual method).
+
+Actions are simple functions that should carry the bulk of the GUI
+interaction logic. They should be decorated with fusion.gui.actions_lib.action
+in order to have proper logging and reproducability of the user
+interactions. E.g. if we want to change the background of a View, we'll
+create an action like:
+
+@action('change_background')
+def change_background(view_id, background_color):
+    view_model = fusion.gui.view_model(view_id)
+    view_model.background_color = background_color
+    fusion.update_view_model(view_model)
+
+After calling this action - the View.handle_model_update will be invoked
+with the new model. This allows for complex GUI logic that is reproducible
+and enforces the avoidance of endless nested callbacks.
+
+TODO: Example on a simple View + View Model
+"""
 from typing import Callable
 import time
 import random
@@ -6,16 +40,20 @@ from contextlib import contextmanager
 import fusion
 from fusion import Change
 from fusion.change_aggregator import ChangeAggregator
-from fusion.gui.utils.base_provider import BaseUtilitiesProvider
+from fusion.platform.base_provider import BaseUtilitiesProvider
 from fusion.logging import BColors
-from fusion.pubsub import Channel, Subscription
-from fusion.gui import channels
+from fusion.libs.channel import Channel, Subscription
 
-from .actions_library import ActionCall, execute_action
-from .actions_library import name_for_wrapped_action
-from .view_library.view import ViewState
+from fusion.libs.action import ActionCall, execute_action
+from fusion.libs.action import name_for_wrapped_action
+from fusion.view import ViewState
 
 log = fusion.get_logger(__name__)
+
+raw_state_changes = Channel('__RAW_STATE_CHANGES__')
+state_changes_per_TLA_by_view_id = Channel(
+    '__AGGREGATED_STATE_CHANGES_PER_TLA__', lambda x: x.last_state().view_id)
+completed_root_actions = Channel('__COMPLETED_ROOT_ACTIONS__')
 
 actions_queue_channel = Channel('__ACTIONS_QUEUE__')
 actions_log_channel = Channel('__ACTIONS_LOG__')
@@ -27,9 +65,9 @@ actions_log_channel = Channel('__ACTIONS_LOG__')
 actions_queue_channel.subscribe(execute_action)
 
 _state_aggregator = ChangeAggregator(
-    input_channel=channels.raw_state_changes,
-    release_trigger_channel=channels.completed_root_actions,
-    output_channel=channels.state_changes_per_TLA_by_view_id)
+    input_channel=raw_state_changes,
+    release_trigger_channel=completed_root_actions,
+    output_channel=state_changes_per_TLA_by_view_id)
 
 _view_states = {}
 _state_backups = {}
@@ -69,7 +107,7 @@ def action_context(action):
     # If it's a root action - propagate the state changes to the views (async)
     _action_context_stack.pop()
     if not _action_context_stack:
-        channels.completed_root_actions.push(action)
+        completed_root_actions.push(action)
 
 
 def is_in_action():
@@ -80,7 +118,7 @@ def ensure_context():
     if not is_in_action():
         raise Exception(
             'State changes can only happen in functions decorated with the '
-            'fusion.gui.actions_library.action decorator')
+            'fusion.gui.action.action decorator')
 
 
 # Action channel interface
@@ -135,7 +173,7 @@ def add_state(state_: ViewState):
     _view_states[state_.view_id] = state_
     _state_backups[state_.view_id] = state_.copy()
     change = Change.CREATE(state_)
-    channels.raw_state_changes.push(change)
+    raw_state_changes.push(change)
     return change
 
 
@@ -158,7 +196,7 @@ def update_state(state_: ViewState):
         raise Exception('Cannot update a state which has not been added.')
 
     change = Change.UPDATE(_state_backups[state_.view_id], state_)
-    channels.raw_state_changes.push(change)
+    raw_state_changes.push(change)
 
     if (state_._version + 1) <= _view_states[state_.view_id]._version:
         raise Exception('You\'re using an old state. This object has already '
@@ -175,7 +213,7 @@ def remove_state(state_: ViewState):
     ensure_context()
     state_ = _view_states.pop(state_.view_id)
     change = Change.DELETE(state_)
-    channels.raw_state_changes.push(change)
+    raw_state_changes.push(change)
     return change
 
 

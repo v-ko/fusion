@@ -2,7 +2,7 @@ from collections import defaultdict
 from typing import Any, Generator, List
 from fusion.libs.entity import Entity
 from fusion.libs.entity.change import Change
-from fusion.helpers import find_many_by_props
+from fusion.util import find_many_by_props
 from fusion.storage.repository import IMMUTABILITY_ERROR_MESSAGE, Repository
 
 

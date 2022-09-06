@@ -1,13 +1,7 @@
 import json
 from pathlib import Path
-from PySide6.QtGui import QKeySequence, QShortcut, QCursor
-from PySide6.QtCore import QPoint
-from PySide6.QtWidgets import QApplication
 
-from fusion import gui
-from fusion.gui import View
-from fusion.basic_classes import Rectangle, Point2D
-from fusion.gui.utils.base_provider import BaseUtilitiesProvider
+from fusion.platform.base_provider import BaseUtilitiesProvider
 from fusion.logging import get_logger
 
 log = get_logger(__name__)

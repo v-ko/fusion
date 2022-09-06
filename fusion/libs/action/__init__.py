@@ -33,7 +33,7 @@ def wrapped_action_by_name(name: str) -> Callable:
     return _actions_by_name[name]
 
 
-from fusion.gui.actions_library.action import ActionCall, ActionRunStates
+from fusion.libs.action.action_call import ActionCall, ActionRunStates
 
 
 def execute_action(_action):

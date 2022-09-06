@@ -10,7 +10,7 @@ from PIL import Image, ImageChops, ImageStat
 import fusion
 from ..constants import RECORDING_EXTENSION, SNAP_EXTENSION
 from fusion.gui import update_components_from_changes
-from fusion.gui.utils.qt_widgets.qt_main_loop import QtMainLoop
+from fusion.platform import QtMainLoop
 
 import pamet
 

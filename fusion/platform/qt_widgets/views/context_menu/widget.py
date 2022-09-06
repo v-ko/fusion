@@ -5,7 +5,7 @@ from PySide6.QtCore import QPoint, Qt
 
 import fusion
 # from fusion.gui.key_binding_manager import first_key_binding_for_command
-from fusion.gui import Command
+from fusion.libs.command import Command
 
 
 def add_entries(menu: QMenu, entries):
