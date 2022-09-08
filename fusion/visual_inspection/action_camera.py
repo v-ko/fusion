@@ -13,6 +13,7 @@ from fusion.libs.action.action_call import ActionCall, ActionRunStates
 from fusion.libs.action import on_actions_logged
 from fusion.libs.state import ViewState
 from pamet import desktop_app
+from pamet.util.url import Url
 
 
 @contextmanager
@@ -31,7 +32,10 @@ def exec_action(delay_before_next: float = 0, apply_delay=True):
 
 class ActionCamera:
 
-    def __init__(self):
+    def __init__(self, max_delay=1, latency=0.5):
+        self.max_delay = max_delay
+        self.latency = latency
+
         self.recording = False
         self.TLA_calls = []
         self.classes_used = set()
@@ -75,6 +79,8 @@ class ActionCamera:
         elif isinstance(arg, tuple):
             all_data_str = ', '.join([self.parse_arg(a) for a in arg])
             return '(' + all_data_str + ')'
+        elif isinstance(arg, Url):
+            return json.dumps(str(arg))
         else:
             raise Exception
 
@@ -111,6 +117,8 @@ class ActionCamera:
 
         delay_before_next = (next_start_time - action_call.start_time +
                              action_call.duration)
+        if self.max_delay:
+            delay_before_next = min(self.max_delay, delay_before_next)
         delay_before_next_str = f'delay_before_next={delay_before_next}'
         exec_kwargs_str = delay_before_next_str
         exec_kwargs_str += ', apply_delay=not run_headless'
@@ -151,8 +159,14 @@ def test_new(window_fixture, request):
 
     def record_until_exit(self, path: Path):
         sub = on_actions_logged(self.handle_action_call)
-        desktop_app.get_app().aboutToQuit.connect(
-            lambda: QApplication.clipboard().setText('TestTest'))
-        desktop_app.get_app().exec()
+
+        # Start the app
+        # desktop_app.get_app().exec()
+        app: QApplication = desktop_app.get_app()
+        while app.activeWindow():
+            fusion.main_loop().process_events(repeat=10)
+            if self.latency:
+                time.sleep(self.latency)
+
         sub.unsubscribe()
         path.write_text(self.generate_code_for_recording())
