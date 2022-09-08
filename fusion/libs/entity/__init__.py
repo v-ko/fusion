@@ -2,7 +2,8 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from typing import Any, Union
-from dataclasses import dataclass, MISSING, field, fields
+from dataclasses import dataclass, field, fields
+import fusion
 
 from fusion.logging import get_logger
 
@@ -14,12 +15,22 @@ log = get_logger(__name__)
 entity_library = {}
 
 
-# @dataclass
-# class Property:
-#     name: str
-#     type: Any = MISSING
-#     default_value: Any = MISSING
-#     property_object: property = None
+_last_entity_id = 0
+
+
+def get_entity_id():
+    global _last_entity_id
+    if fusion.reproducible_ids():
+        _last_entity_id += 1
+        return str(_last_entity_id).zfill(8)
+    else:
+        return get_new_id()
+
+
+def reset_entity_id_counter():
+    global _last_entity_id
+    _last_entity_id = 0
+    # For debugging purposes
 
 
 def __hash__(self):

@@ -4,7 +4,6 @@ import json
 import time
 from pathlib import Path
 from contextlib import contextmanager
-from PySide6.QtWidgets import QApplication
 
 import fusion
 from fusion.util import Point2D, Rectangle, Color
@@ -13,11 +12,12 @@ from fusion.libs.action.action_call import ActionCall, ActionRunStates
 from fusion.libs.action import on_actions_logged
 from fusion.libs.state import ViewState
 from pamet import desktop_app
+from pamet.model.arrow import ArrowAnchorType
 from pamet.util.url import Url
 
 
 @contextmanager
-def exec_action(delay_before_next: float = 0, apply_delay=True):
+def exec_action(delay_before_next: float = 0, apply_delay=True, speedup=2):
     t0 = time.time()
     # fusion.main_loop().process_events(repeat=10)
     yield
@@ -27,7 +27,7 @@ def exec_action(delay_before_next: float = 0, apply_delay=True):
     exec_time = time.time() - t0
     time_left = delay_before_next - exec_time
     if time_left > 0 and apply_delay:
-        time.sleep(time_left)
+        time.sleep(time_left / speedup)
 
 
 class ActionCamera:
@@ -46,6 +46,9 @@ class ActionCamera:
                 action_call.issuer != 'user':
             return
         self.TLA_calls.append(action_call)
+
+        if self.latency:  # Delay to avoid multiple move/resize action spamming
+            time.sleep(self.latency)
 
     def parse_arg(self, arg):
         if isinstance(arg, str):
@@ -66,6 +69,9 @@ class ActionCamera:
         elif isinstance(arg, (Point2D, Rectangle, Color)):
             self.classes_used.add(type(arg))
             return f'{type(arg).__name__}{arg.as_tuple()}'
+        elif isinstance(arg, ArrowAnchorType):
+            self.classes_used.add(ArrowAnchorType)
+            return f'{ArrowAnchorType.__name__}.{arg.name}'
         elif isinstance(arg, dict):
             key_val_strings = []
             for key, val in arg.items():
@@ -81,6 +87,8 @@ class ActionCamera:
             return '(' + all_data_str + ')'
         elif isinstance(arg, Url):
             return json.dumps(str(arg))
+        elif arg is None:
+            return 'None'
         else:
             raise Exception
 
@@ -161,12 +169,10 @@ def test_new(window_fixture, request):
         sub = on_actions_logged(self.handle_action_call)
 
         # Start the app
-        # desktop_app.get_app().exec()
-        app: QApplication = desktop_app.get_app()
-        while app.activeWindow():
-            fusion.main_loop().process_events(repeat=10)
-            if self.latency:
-                time.sleep(self.latency)
+        desktop_app.get_app().exec()
+        # app: QApplication = desktop_app.get_app()
+        # while any([w.isVisible() for w in app.topLevelWindows()]):
+        #     fusion.main_loop().process_events()
 
         sub.unsubscribe()
         path.write_text(self.generate_code_for_recording())

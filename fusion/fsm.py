@@ -33,7 +33,7 @@ and enforces the avoidance of endless nested callbacks.
 TODO: Example on a simple View + View Model
 """
 import fusion
-from fusion import Change
+from fusion.libs.entity.change import Change
 from fusion.change_aggregator import ChangeAggregator
 from fusion.libs.channel import Channel
 from fusion.libs.action import completed_root_actions, ensure_context
@@ -45,10 +45,7 @@ raw_state_changes = Channel('__RAW_STATE_CHANGES__')
 state_changes_per_TLA_by_view_id = Channel(
     '__AGGREGATED_STATE_CHANGES_PER_TLA__', lambda x: x.last_state().view_id)
 
-_state_aggregator = ChangeAggregator(
-    input_channel=raw_state_changes,
-    release_trigger_channel=completed_root_actions,
-    output_channel=state_changes_per_TLA_by_view_id)
+_state_aggregator = None
 
 _view_states = {}
 _state_backups = {}
@@ -56,11 +53,23 @@ _state_backups = {}
 _last_view_id = 0
 
 
+def setup():
+    global _state_aggregator
+    _state_aggregator = ChangeAggregator(
+        input_channel=raw_state_changes,
+        release_trigger_channel=completed_root_actions,
+        output_channel=state_changes_per_TLA_by_view_id)
+
+
+setup()
+
+
 def reset():
     global _last_view_id
     _view_states.clear()
     _state_backups.clear()
     _last_view_id = 0
+    setup()
 
 
 def get_view_id():

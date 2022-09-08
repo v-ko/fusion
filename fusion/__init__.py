@@ -14,7 +14,7 @@ from fusion.libs.entity.change import Change, ChangeTypes
 from fusion.loop import main_loop, set_main_loop
 
 line_spacing_in_pixels = 20
-
+_reproducible_ids = False
 # class StateManagerWrapper:
 #     def __init__(self):
 #         self._fsm = FusionStateManager()
@@ -60,3 +60,7 @@ def set_reproducible_ids(enabled: bool):
         random.seed(0)
     else:
         random.seed(time.time())
+
+
+def reproducible_ids():
+    return _reproducible_ids

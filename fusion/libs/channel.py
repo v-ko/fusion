@@ -25,6 +25,12 @@ log = get_logger(__name__)
 _channels = {}
 
 
+def unsibscribe_all():
+    for channel_name, channel in _channels.items():
+        for sub_props, sub in list(channel.subscriptions.items()):
+            sub.unsubscribe()
+
+
 class SubscriptionTypes(Enum):
     CHANNEL = 1
     ENTITY = 2
