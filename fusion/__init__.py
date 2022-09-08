@@ -58,8 +58,10 @@ def set_reproducible_ids(enabled: bool):
     """When testing - use non-random ids"""
     if enabled:
         random.seed(0)
+        _reproducible_ids = True
     else:
         random.seed(time.time())
+        _reproducible_ids = False
 
 
 def reproducible_ids():
