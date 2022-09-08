@@ -56,6 +56,7 @@ def call_delayed(callback: Callable,
 # ----------------Various---------------------
 def set_reproducible_ids(enabled: bool):
     """When testing - use non-random ids"""
+    global _reproducible_ids
     if enabled:
         random.seed(0)
         _reproducible_ids = True
