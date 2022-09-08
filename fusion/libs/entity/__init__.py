@@ -142,7 +142,7 @@ class Entity:
     without it. See the register_entity_type docs for an example.
     """
 
-    id: str | tuple = field(default_factory=get_new_id)
+    id: str | tuple = field(default_factory=get_entity_id)
     immutability_error_message: str = field(default=False,
                                             init=False,
                                             repr=False)
