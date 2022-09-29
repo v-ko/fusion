@@ -123,8 +123,8 @@ class Rectangle:
     def contains(self, point: Point2D) -> bool:
         """Returns True if the rectangle contains the point, otherwise False
         """
-        return ((self.x() < point.x() < self.right()) and
-                (self.y() < point.y() < self.bottom()))
+        return ((self.x() <= point.x() <= self.right()) and
+                (self.y() <= point.y() <= self.bottom()))
 
     def as_tuple(self) -> Tuple[float, float, float, float]:
         """Returns a list with the rectangle parameters ([x, y, w, h])
