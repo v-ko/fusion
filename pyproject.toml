@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "python-fusion"
-version = "0.7.2"
+version = "0.7.3"
 description = "An experimental state manager"
 authors = [{ name = "Petko Dichev", email = "pditchev@gmail.com" }]
-license = { file="LICENSE" }
+license = { text = "GPLv3" }
 readme = "README.md"
 requires-python = ">=3.10"
 classifiers = [

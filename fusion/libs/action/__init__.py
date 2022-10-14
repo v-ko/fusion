@@ -1,12 +1,13 @@
 from contextlib import contextmanager
 import time
 import functools
+import traceback
 from typing import Callable
 
 import fusion
 from fusion.libs.action.action_call import ActionCall, ActionRunStates
 from fusion.libs.channel import Channel, Subscription
-from fusion.logging import BColors
+from fusion.logging import LOGGING_LEVEL, BColors, LoggingLevels
 
 log = fusion.get_logger(__name__)
 
@@ -116,10 +117,21 @@ def execute_action(_action):
     _action.is_top_level = not is_in_action()
     with action_context(_action):
         # Call the actual function
-        return_val = _action.function(*_action.args, **_action.kwargs)
+        try:
+            return_val = _action.function(*_action.args, **_action.kwargs)
+            _action.run_state = ActionRunStates.FINISHED
+            _action.duration = time.time() - _action.start_time
+        except Exception as e:
+            if LOGGING_LEVEL == LoggingLevels.DEBUG:
+                raise e
+            else:
+                _action.duration = time.time() - _action.start_time
+                _action.error = (str(e) + '\n\nTraceback:\n' +
+                                 traceback.format_exc())
 
-    _action.duration = time.time() - _action.start_time
-    _action.run_state = ActionRunStates.FINISHED
+                return_val = None
+                _action.run_state = ActionRunStates.FAILED
+
     log_action_call(_action)
 
     return return_val

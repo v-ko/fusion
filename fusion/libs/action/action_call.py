@@ -11,6 +11,7 @@ class ActionRunStates(Enum):
     NONE = 0
     STARTED = 1
     FINISHED = 2
+    FAILED = 3
 
 
 class ActionCall:
@@ -28,13 +29,15 @@ class ActionCall:
                  start_time: float = None,
                  duration: int = -1,
                  function: Callable | str = None,
-                 is_top_level: bool = None):
+                 is_top_level: bool = None,
+                 error: str = ''):
 
         self.name = name
         self.issuer = issuer
         self.run_state = None
         self.set_run_state(run_state)
         self.is_top_level: bool = is_top_level
+        self.error = error
 
         self.args = args or []
         if not isinstance(self.args, list):
