@@ -1,10 +1,6 @@
 """It supports adding named channels on which to subscribe handlers and then
 dispatch messages (which are arbitrary python objects).
 
-The main loop can be swapped with different implementations in order to
-accomodate different GUI frameworks. The implementations that are actually
-used can be found in misli_gui (Qt) and misli_brython (JS).
-
 Dispatching and invoking the handlers are both done on the same thread, so
 it's expected that the subscribed callables are light, since the main purpose
 of fusion is GUI rendering and blocking the main loop would cause freezing.
@@ -14,9 +10,8 @@ from typing import Callable, Dict, Any
 from collections import defaultdict
 from enum import Enum
 from dataclasses import MISSING
-import fusion
 
-from fusion.loop import MainLoop, NoMainLoop
+import fusion
 from fusion import get_logger
 
 log = get_logger(__name__)

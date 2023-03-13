@@ -3,12 +3,9 @@ import json
 from datetime import datetime
 from typing import Any, Union
 from dataclasses import dataclass, field, fields
+
 import fusion
-
-from fusion.logging import get_logger
-
-from fusion.logging import LOGGING_LEVEL, LoggingLevels
-
+from fusion.logging import get_logger, LOGGING_LEVEL, LoggingLevels
 from fusion.util import get_new_id
 
 log = get_logger(__name__)

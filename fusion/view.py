@@ -9,7 +9,7 @@ log = get_logger(__name__)
 
 class View:
     """This base View class should be inherited by all view implementations in
-    a Misli app.
+    a Fusion app.
     """
 
     def __init__(self, initial_state: ViewState = None):
@@ -27,6 +27,6 @@ class View:
     def state(self) -> ViewState:
         if fsm.view_state_exists(self._view_id):
             self_state = fsm.view_state(self._view_id)
-        else:
+        else:  # View got deleted (but hasn't been destroyed yet)
             self_state = fsm.get_state_backup(self._view_id)
         return self_state

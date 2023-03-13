@@ -15,6 +15,8 @@ from fusion.loop import main_loop, set_main_loop
 
 line_spacing_in_pixels = 20
 _reproducible_ids = False
+_main_loop_exception_handler = None
+
 # class StateManagerWrapper:
 #     def __init__(self):
 #         self._fsm = FusionStateManager()
@@ -67,3 +69,25 @@ def set_reproducible_ids(enabled: bool):
 
 def reproducible_ids():
     return _reproducible_ids
+
+
+def main_loop_exception_handler(exception: Exception):
+    """Handle an exception raised in the main loop.
+
+    Args:
+        exception (Exception): The exception to handle.
+    """
+    if _main_loop_exception_handler:
+        _main_loop_exception_handler(exception)
+    else:
+        raise exception
+
+
+def set_main_loop_exception_handler(handler: Callable):
+    """Set a handler for exceptions raised in the main loop.
+
+    Args:
+        handler (Callable): A callable that takes an exception as argument.
+    """
+    global _main_loop_exception_handler
+    _main_loop_exception_handler = handler
