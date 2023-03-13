@@ -122,7 +122,7 @@ def execute_action(_action):
             _action.run_state = ActionRunStates.FINISHED
             _action.duration = time.time() - _action.start_time
         except Exception as e:
-            if LOGGING_LEVEL == LoggingLevels.DEBUG:
+            if LOGGING_LEVEL == LoggingLevels.DEBUG.value:
                 raise e
             else:
                 _action.duration = time.time() - _action.start_time
