@@ -174,7 +174,7 @@ def action(name: str, issuer: str = 'user'):
                     raise Exception(
                         'It should not be possible to invoke a nested action'
                         'From a thread different from the main one.')
-                print(f'Not main thread. Queueing {_action}.')
+                # print(f'Not main thread. Queueing {_action}.')
                 fusion.fsm.actions_queue_channel.push(_action)
                 return
 

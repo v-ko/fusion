@@ -55,7 +55,10 @@ class QtMainLoop(MainLoop):
             proxy = ProxyCall(report_and_callback)
             proxy.moveToThread(self.app.thread())
             self.tmp_proxies_list.append(proxy)
-            QMetaObject.invokeMethod(proxy, 'invoke', Qt.QueuedConnection)
+            success = QMetaObject.invokeMethod(proxy, 'invoke',
+                                               Qt.QueuedConnection)
+            if not success:
+                raise Exception('Failed to invoke method')
 
     def process_events(self, repeat: int = 0):
         # A hacky way to be sure that all posted events are called
