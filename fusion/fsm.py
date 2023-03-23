@@ -36,7 +36,7 @@ import fusion
 from fusion.libs.entity.change import Change
 from fusion.change_aggregator import ChangeAggregator
 from fusion.libs.channel import Channel
-from fusion.libs.action import completed_root_actions, ensure_context
+from fusion.libs.action import completed_root_actions, ensure_context, execute_action
 from fusion.libs.state import ViewState
 
 log = fusion.get_logger(__name__)
@@ -44,6 +44,9 @@ log = fusion.get_logger(__name__)
 raw_state_changes = Channel('__RAW_STATE_CHANGES__')
 state_changes_per_TLA_by_view_id = Channel(
     '__AGGREGATED_STATE_CHANGES_PER_TLA__', lambda x: x.last_state().view_id)
+
+actions_queue_channel = Channel('__ACTIONS_QUEUE__')
+actions_queue_channel.subscribe(execute_action)
 
 _state_aggregator = None
 

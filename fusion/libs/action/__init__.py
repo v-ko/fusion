@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+import threading
 import time
 import functools
 import traceback
@@ -166,9 +167,16 @@ def action(name: str, issuer: str = 'user'):
             if fusion.libs.action.view_and_parent_update_ongoing():
                 raise Exception(
                     'Cannot invoke an action while updating the views.')
-                #   f' Queueing {_action} on the main loop.')
-                # gui.actions_queue_channel.push(_action)
-                # return
+
+            # If we're not on the main thread - queue the action
+            if threading.current_thread() != threading.main_thread():
+                if is_in_action():
+                    raise Exception(
+                        'It should not be possible to invoke a nested action'
+                        'From a thread different from the main one.')
+                print(f'Not main thread. Queueing {_action}.')
+                fusion.fsm.actions_queue_channel.push(_action)
+                return
 
             return execute_action(_action)
 

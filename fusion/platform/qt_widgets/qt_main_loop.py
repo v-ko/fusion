@@ -1,8 +1,25 @@
+import threading
 from time import sleep
 from typing import Callable
-from PySide6.QtCore import QEventLoop, QTimer
+from PySide6.QtCore import QMetaObject, QObject, QTimer, Qt, Slot
 from PySide6.QtWidgets import QApplication
 from fusion.loop import MainLoop
+
+
+class ProxyCall(QObject):
+
+    def __init__(self,
+                 handler: callable,
+                 args: list = None,
+                 kwargs: dict = None) -> None:
+        super().__init__()
+        self.handler = handler
+        self.args = args or []
+        self.kwargs = kwargs or {}
+
+    @Slot()
+    def invoke(self):
+        self.handler(*self.args, **self.kwargs)
 
 
 class QtMainLoop(MainLoop):
@@ -10,6 +27,7 @@ class QtMainLoop(MainLoop):
     def __init__(self, app: QApplication):
         self.app = app
         self.queue_checksum = 0
+        self.tmp_proxies_list = []
 
     def call_delayed(self,
                      callback: Callable,
@@ -30,7 +48,14 @@ class QtMainLoop(MainLoop):
         self.queue_checksum += 1
 
         # lambda: callback(*args, **kwargs))
-        QTimer.singleShot(delay * 1000, report_and_callback)
+        if threading.current_thread() is threading.main_thread():
+            QTimer.singleShot(delay * 1000, report_and_callback)
+        else:
+            # If we are not in the main thread, we need to use the proxy hack
+            proxy = ProxyCall(report_and_callback)
+            proxy.moveToThread(self.app.thread())
+            self.tmp_proxies_list.append(proxy)
+            QMetaObject.invokeMethod(proxy, 'invoke', Qt.QueuedConnection)
 
     def process_events(self, repeat: int = 0):
         # A hacky way to be sure that all posted events are called
