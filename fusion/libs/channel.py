@@ -16,7 +16,6 @@ from fusion import get_logger
 
 log = get_logger(__name__)
 
-# --------------Dispatcher related-------------------
 _channels = {}
 
 
@@ -91,7 +90,6 @@ class Channel:
                      f' channel_name={self.name}')
             fusion.call_delayed(sub.handler, 0, args=[message])
 
-    # @log.traced
     def subscribe(self, handler: Callable, index_val: Any = MISSING):
         sub = Subscription(handler, _channels[self.name], index_val)
         self.add_subscribtion(sub)

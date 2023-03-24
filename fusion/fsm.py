@@ -1,36 +1,51 @@
-"""The fusion.gui module provides basic functionality for handling GUI state
-and updates. The main parts of the fusion based GUI app are Views, their
-respective View Models, and Actions (alternatively called usecases).
+"""Fusion is a state manager (fsm) and a helper library for building GUIs in
+Python.
 
-View classes are widgets (in Qt) or e.g. React components in web apps.
-Though they are allowed to have a local state - all properties that can be
-changed by other classes or functions should be in their View Model.
+Changes to the state should be made only in functions decorated as actions.
+On the completion of every root action the updates to the view states get
+sent to the views (via the state_changes_per_TLA_by_view_id channel).
 
-Each instance of a view and their view model get registered (automatically)
-upon creation in fusion.gui. And the only proper way to change a View
-Model is via fusion.update_view_model(new_model). That method chaches
-the updated models and in that way unneeded GUI renderings are avoided
-in the midst of complex user actions. After all action logic is executed -
-the updated view models are pushed to the views (by invoking their
-View.handle_model_update virtual method).
+Example usage:
+```
+@view_state_type
+class MockViewState(ViewState):
+    test_field: str = 'not_set'
+    child_states: set = field(default_factory=set)
 
-Actions are simple functions that should carry the bulk of the GUI
-interaction logic. They should be decorated with fusion.gui.actions_lib.action
-in order to have proper logging and reproducability of the user
-interactions. E.g. if we want to change the background of a View, we'll
-create an action like:
+@action('add_children')  # Is called nested in create_view_state
+def add_children(parent_state: MockViewState):
+    parent_state.test_field = 'set'
+    for i in range(3):
+        child = MockViewState()
 
-@action('change_background')
-def change_background(view_id, background_color):
-    view_model = fusion.gui.view_model(view_id)
-    view_model.background_color = background_color
-    fusion.update_view_model(view_model)
+        parent_state.child_states.add(child)
+        children.append(child)
 
-After calling this action - the View.handle_model_update will be invoked
-with the new model. This allows for complex GUI logic that is reproducible
-and enforces the avoidance of endless nested callbacks.
+        change = fsm.add_state(child)
+        expected_raw_state_changes.append(change)
+    change = fsm.update_state(parent_state)
+    expected_raw_state_changes.append(change)
 
-TODO: Example on a simple View + View Model
+@action('create_view_state')
+def create_view_state():
+    parent_state = MockViewState()
+    change = fsm.add_state(parent_state)
+    expected_raw_state_changes.append(change)
+    add_children(parent_state)
+    dummy_nested()
+    return parent_state
+
+def handle_state_change(change):
+    state: MockViewState = change.last_state()
+    assert change.updated.test_field
+    assert state.test_field == 'set'
+
+    assert set(children) == set(change.added.child_states)
+
+parent_state = create_view_state()
+subscription = fsm.state_changes_per_TLA_by_view_id.subscribe(
+    handle_state_change, index_val=parent_state.id)
+```
 """
 import fusion
 from fusion.libs.entity.change import Change

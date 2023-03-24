@@ -94,7 +94,6 @@ def log_action_call(action_call: ActionCall):
     actions_log_channel.push(action_call.copy())
 
 
-@log.traced
 def on_actions_logged(handler: Callable) -> Subscription:
     """Register a callback to the actions channel. It will be called before and
     after each action call. It's used for user interaction recording.
@@ -139,8 +138,7 @@ def execute_action(_action):
 
 
 def action(name: str, issuer: str = 'user'):
-    """A decorator that adds an action state emission on the start and end of
-    each function call (via fusion.gui.push_action).
+    """A decorator that registers an action and applies safety checks.
 
     On module initialization this decorator saves the decorated function in the
      actions library (by name). By registering actions and providing a stream
@@ -149,6 +147,7 @@ def action(name: str, issuer: str = 'user'):
     Args:
         name (str): The name of the action (domain-like naming convention, e.g.
          'context.action_name')
+        issuer (str): The issuer of the action.
     """
     if not name or not isinstance(name, str):
         raise Exception(

@@ -22,8 +22,8 @@ def view_state_type(view_state_class: Any):
 
 @view_state_type
 class ViewState(Entity):
-    '''Mind putting this class as last inherited when also inheriting from
-    an Entity with a custom id field, so the latter does not get overwritten'''
+    """Mind putting this class as last inherited when also inheriting from
+    an Entity with a custom id field, so the latter does not get overwritten"""
     view_id: str = field(default_factory=lambda: fsm.get_view_id())
     _added: bool = field(default=False, init=False, repr=False)
     _version: int = field(default=0, init=False, repr=False)

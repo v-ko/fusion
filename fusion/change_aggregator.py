@@ -111,9 +111,9 @@ class ChangeAggregator:
             self.release_aggregated_changes)
 
     def handle_change(self, change: Change):
-        '''Parses the recieved changes and reduces them to a single change per
+        """Parses the recieved changes and reduces them to a single change per
         view state (identified by its id).
-        '''
+        """
         state = change.last_state()
         if id(state) in self.slots:
             self.slots[id(state)].add_change(change)

@@ -45,8 +45,6 @@ def entity_type(entity_class: Any, repr: bool = False):
     purposes of serialization and deserialization. It applies the dataclass
     decorator.
     """
-    # entity_class = _apply_dataclass_and_process_properties(entity_class)
-
     # Transplant __hash__ and __eq__ into every entity upon registration
     # because the dataclasses lib disregards the inherited ones
     entity_class.__hash__ = __hash__
@@ -119,7 +117,8 @@ class Entity:
     """The base class for entities. Provides several convenience methods for
     conversions to and from dict, copying and attribute updates (via replace())
 
-    All entity subclasses should be decorated with register_entity_type like so:
+    All entity subclasses should be decorated with register_entity_type
+    like so:
 
         from fusion.entity import register_entity_type
 
@@ -134,9 +133,9 @@ class Entity:
     The __init__ is used by dataclass, so in order to do stuff upon
     construction you need to reimplement __post_init__.
 
-    If you want to use computed properties declared via @property you should
-    declare the dataclass attributes with a leading underscore and the methods
-    without it. See the register_entity_type docs for an example.
+    Ids are used for hashing and equality checks, so they are immutable. To
+    change an id, you need to create a new entity with the new id. You can
+    use the with_id method as a shorthand for that.
     """
 
     id: str | tuple = field(default_factory=get_entity_id)
@@ -215,9 +214,10 @@ class Entity:
         return type(self)(**self_dict)
 
     def gid(self) -> Union[str, tuple]:
-        """Returns the global id of the entity. This function can be
+        """(Will be deprecated in future versions)
+        Returns the global id of the entity. This function can be
         overwritten to return e.g. a tuple of values like
-        (self.page_id, self.id)
+        (self.page_id, self.id).
         """
         return self.id
 
@@ -260,7 +260,7 @@ class Entity:
         return leftovers
 
     def parent_gid(self):
-        """Implement this to return the parent global id
+        """Remplement this to return the parent global id
         """
         return None
 
