@@ -1,7 +1,7 @@
 from __future__ import annotations
 import json
 from datetime import datetime
-from typing import Any, Union
+from typing import Type, TypeVar, Union
 from dataclasses import dataclass, field, fields
 
 import fusion
@@ -40,7 +40,10 @@ def __eq__(self, other: Entity) -> bool:
     return self.gid() == other.gid()
 
 
-def entity_type(entity_class: Any, repr: bool = False):
+T = TypeVar('T')
+
+
+def entity_type(entity_class: Type[T], repr: bool = False) -> Type[T]:
     """A class decorator to register entities in the entity library for the
     purposes of serialization and deserialization. It applies the dataclass
     decorator.

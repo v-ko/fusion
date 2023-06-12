@@ -1,5 +1,4 @@
 from __future__ import annotations
-from multiprocessing.util import get_logger
 
 from fusion import fsm, get_logger
 from fusion.libs.state import ViewState

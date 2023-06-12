@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import field
-from typing import Any
+from typing import Type, TypeVar
 
 from fusion import entity_type, fsm
 from fusion.libs.action import is_in_action
@@ -12,7 +12,10 @@ def __hash__(self) -> int:
     return hash(self.view_id)
 
 
-def view_state_type(view_state_class: Any):
+T = TypeVar('T', bound='Entity')
+
+
+def view_state_type(view_state_class: Type[T]) -> Type[T]:
     view_state_class = entity_type(view_state_class, repr=False)
     # Transplant the __hash__ because the dataclasses lib ignores it if it's
     # inherited from a superclass.
