@@ -76,15 +76,6 @@ class InMemoryRepository(Repository):
 
         return Change.DELETE(old_entity)
 
-    def insert(self, batch: List[Entity]):
-        return [self.insert_one(entity) for entity in batch]
-
-    def remove(self, batch: List[Entity]):
-        return [self.remove_one(entity) for entity in batch]
-
-    def update(self, batch: List[Entity]):
-        return [self.update_one(entity) for entity in batch]
-
     def find_cached(self,
                     gid: str | tuple = None,
                     type: Any = None,

@@ -8,7 +8,6 @@ of fusion is GUI rendering and blocking the main loop would cause freezing.
 
 from typing import Callable, Dict, Any
 from collections import defaultdict
-from enum import Enum
 from dataclasses import MISSING
 
 import fusion
@@ -23,12 +22,6 @@ def unsibscribe_all():
     for channel_name, channel in _channels.items():
         for sub_props, sub in list(channel.subscriptions.items()):
             sub.unsubscribe()
-
-
-class SubscriptionTypes(Enum):
-    CHANNEL = 1
-    ENTITY = 2
-    INVALID = 0
 
 
 class Subscription:
@@ -59,7 +52,8 @@ class Channel:
         self.subscriptions: Dict[tuple, Subscription] = {}  # by id
 
         # if index_key:
-        self.index = defaultdict(list)
+        self.subs_index = defaultdict(list)  # Subscriptions by index_val
+        self.non_indexed_subs = []  # Subscriptions without index_val
 
         if name in _channels:
             raise Exception('A channel with this name already exists')
@@ -81,13 +75,15 @@ class Channel:
 
         # # log.info('^^PUSH^^ on "%s": %s' % (self.name, message))
 
+        #
+
         for sub_props, sub in self.subscriptions.items():
             if self.index_key and sub.index_val is not MISSING:
                 if self.index_key(message) != sub.index_val:
                     continue
 
-            log.info(f'Queueing {sub.handler=} for {message=} on'
-                     f' channel_name={self.name}')
+            # log.info(f'Queueing {sub.handler=} for {message=} on'
+            #          f' channel_name={self.name}')
             fusion.call_delayed(sub.handler, 0, args=[message])
 
     def subscribe(self, handler: Callable, index_val: Any = MISSING):
