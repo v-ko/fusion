@@ -5,7 +5,7 @@ import { get_new_id as getNewId } from "../util";
 const log = getLogger('entity.ts');
 
 // Library related variables and functions
-let entityLibrary: { [key: string]: typeof Entity } = {};
+let entityLibrary: { [key: string]: typeof Entity<any> } = {};
 let _lastEntityId: number = 0
 
 
@@ -26,63 +26,55 @@ export function resetEntityIdCounter() {
 }
 
 
-export function entityType(entity_class: any): any {
-    let entityClassName = entity_class.constructor.name
-
-    entityLibrary[entityClassName] = entity_class
-    return entity_class
-}
-
-
-export function getEntityClassByName(entity_class_name: string) {
-    return entityLibrary[entity_class_name]
-}
-
-
-// Serialization related functions
-export function dumpToDict<T extends Entity<EntityData>>(entity: T): EntityData {
-    const entity_dict: EntityData = entity.toObject()
-
-    if (entity_dict.typeName !== undefined) {
-        throw new Error('The typeName identifier is used in the serialization and is prohibited.')
+export function entityType<T extends typeof Entity<S>, S extends EntityData>(name: string): Function {
+    // If 'name' is not a string - throw error
+    if (typeof name !== 'string') {
+        throw new Error('Entity type name must be a string');
     }
 
-    entity_dict.typeName = entity.constructor.name
-    return entity_dict
+    return function(entity_class: T): T {
+        let entityClassName = name; // Use the explicitly provided name instead of inferring
+        // log.info(`Registering entity class ${entityClassName}`);
+        entityLibrary[entityClassName] = entity_class;
+        return entity_class;
+    }
+}
+
+export function getEntityClassByName<T extends typeof Entity>(entity_class_name: string): T {
+    return entityLibrary[entity_class_name] as T
 }
 
 
-export function dumpAsJson(entity: any, ensure_ascii = false, dump_kwargs: any) {
-    const entity_dict = dumpToDict(entity)
-    const json_str = JSON.stringify(entity_dict, null, 2)
-    return json_str
+export interface SerializedEntity extends EntityData {
+    type_name: string;
+}
+
+// Serialization related functions
+export function dumpToDict<T extends Entity<EntityData>>(entity: T): SerializedEntity {
+    const entityDict = entity.toObject() as SerializedEntity
+    entityDict.type_name = entity.constructor.name
+
+    return entityDict
 }
 
 
-// export function loadFromDict(entity_dict: any): any {
-//     const typeName = entity_dict.typeName
-//     const cls = getEntityClassByName(typeName)
-//     let instance: any
+export function loadFromDict<T extends SerializedEntity>(entityDict: T): Entity<EntityData> {
+    const typeName = entityDict.type_name
+    const cls = getEntityClassByName(typeName)
+    let instance: any
 
-//     if (cls === undefined) {
-//         throw new Error(`Entity class ${typeName} not found.`)
-//     } else {
-//         instance = new cls(entity_dict)
-//     }
-//     return instance
-// }
-
-
-// export function loadFromJson(json_str: string): any {
-//     const entity_dict = JSON.parse(json_str)
-//     return loadFromDict(entity_dict)
-// }
-
+    if (cls === undefined) {
+        throw new Error(`Entity class ${typeName} not found.`)
+    } else {
+        instance = new (cls as new (data: T) => Entity<T>)(entityDict)
+    }
+    return instance
+}
 
 // Entity definition
 export interface EntityData {
     id: string;  // Allows for composite ids
-    typeName?: string;
+    // parentId: string;
 }
 
 
@@ -97,15 +89,19 @@ export abstract class Entity<T extends EntityData> {
             this._data.id = getEntityId()
         }
 
-    }
-
-    get data(): T {
-        return this._data;
+        // // Assign a parent id if it is not provided
+        // if (this._data.parentId === undefined) {
+        //     this._data.parentId = ''
+        // }
     }
 
     get id(): string {
         return this._data.id;
     }
+
+    // get parentId(): string {
+    //     return this._data.parentId;
+    // }
 
     abstract get parentId(): string;
     get parent_id(): string {
@@ -113,18 +109,34 @@ export abstract class Entity<T extends EntityData> {
         return this.parentId;
     }
 
-    withId<S extends typeof this>(new_id: string): S {
+    // withId<S extends typeof this>(new_id: string): S {
+    //     const newData = { ...this._data, id: new_id };
+    //     return new (this.constructor as { new(data: T): S })(newData);
+    // }
+    // copy<S extends typeof this>(): S {
+    //     // We're copying the data object in the constructor, so no need to do it here
+    //     return new (this.constructor as { new(data: T): S })(this._data);
+    // }
+    withId(new_id: string): this {
         const newData = { ...this._data, id: new_id };
-        return new (this.constructor as { new(data: T): S })(newData);
+        return new (<any>this.constructor)(newData);
     }
-    copy<S extends typeof this>(): S {
+    copy(): this {
         // We're copying the data object in the constructor, so no need to do it here
-        return new (this.constructor as { new(data: T): S })(this._data);
+        return new (<any>this.constructor)(this._data);
     }
-
+    copyWithNewId(): this {
+        return this.withId(getEntityId());
+    }
+    data(): T {
+        return {...this._data};
+    }
     toObject(): T {
-        return this._data;
+        return {...this._data};
     };
+    asdict(): T {
+        return {...this._data};
+    }
 
     replace(new_data: Partial<T>) {
         if (new_data.id !== undefined) {

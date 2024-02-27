@@ -1,5 +1,5 @@
-import { Entity, EntityData } from "./libs/Entity"
-import { currentTime, get_new_id } from "./util"
+import { Entity, EntityData, SerializedEntity, dumpToDict, loadFromDict } from "./libs/Entity"
+import { currentTime, get_new_id, timestamp } from "./util"
 
 export enum ChangeTypes {
     EMPTY = 0,
@@ -11,24 +11,46 @@ export enum ChangeTypes {
 
 interface ChangeData {
     id: string
-    old_state: Entity<EntityData>
-    new_state: Entity<EntityData>
-    time: Date
+    old_state?: Entity<EntityData>
+    new_state?: Entity<EntityData>
+    timestamp: string;
+}
+
+export interface SerializedChangeData {
+    id: string
+    old_state: SerializedEntity | null
+    new_state?: SerializedEntity | null
+    delta?: Partial<EntityData> | null
+    timestamp: string;
 }
 
 
-export class Change {
-    public id?: string
+export class Change implements ChangeData {
+    public id: string
     public old_state?: Entity<EntityData>
     public new_state?: Entity<EntityData>
-    public time?: Date
+    public timestamp: string
 
+    constructor(data: ChangeData) {
+        this.id = data.id
+        this.old_state = data.old_state
+        this.new_state = data.new_state
+        this.timestamp = data.timestamp
+    }
 
-    constructor(id?: string, old_state?: Entity<EntityData>, new_state?: Entity<EntityData>, time?: Date) {
-        this.id = id ?? get_new_id()
-        this.old_state = old_state
-        this.new_state = new_state
-        this.time = time ?? currentTime()
+    static new(old_state?: Entity<EntityData>, new_state?: Entity<EntityData>): Change {
+        let change = new Change({
+            id: get_new_id(),
+            old_state: old_state,
+            new_state: new_state,
+            timestamp: timestamp(currentTime())
+        })
+
+        return change;
+    }
+
+    get time(): Date {
+        return new Date(this.timestamp)
     }
 
     changeType() {
@@ -43,35 +65,116 @@ export class Change {
         }
     }
 
-    asdict() {
-        /**
-         * Return a dictionary representation of the change.
-         */
+    // def asdict(self) -> dict:
+    //     if self.old_state:
+    //         old_state = dump_to_dict(self.old_state)
+    //     else:
+    //         old_state = None
+
+    //     if self.new_state:
+    //         new_state = dump_to_dict(self.new_state)
+    //     else:
+    //         new_state = None
+
+    //     return dict(old_state=old_state,
+    //                 new_state=new_state,
+    //                 id=self.id,
+    //                 timestamp=timestamp(self.time, microseconds=True))
+
+    asdict(): SerializedChangeData {
+        let oldState: SerializedEntity | null = null
+        let newState: SerializedEntity | null = null
+
+        if (this.old_state) {
+            oldState = dumpToDict(this.old_state)
+        }
+        if (this.new_state) {
+            newState = dumpToDict(this.new_state)
+        }
+
         return {
+            old_state: oldState,
+            new_state: newState,
             id: this.id,
-            old_state: this.old_state,
-            new_state: this.new_state,
-            time: this.time
-        } as ChangeData
+            timestamp: timestamp(this.time, true)
+        }
     }
 
-    static fromDict(props: ChangeData): Change {
-        //     if 'delta' in change_dict:
-        //         return cls.from_safe_delta_dict(change_dict)
-        return new Change(
-            props.id, props.old_state, props.new_state, props.time);
+    static fromSafeDeltaDict(serializedChange: SerializedChangeData): Change {
+        let changeData: ChangeData = {
+            id: serializedChange.id,
+            timestamp: serializedChange.timestamp
+        }
+        let old_state_dict = serializedChange.old_state
+        let new_state_dict = serializedChange.new_state
+
+        // Get the delta and use it to generate the new_state
+        let delta = serializedChange.delta
+        if (delta !== undefined) {
+            if (!old_state_dict) {
+                throw new Error("Cannot apply delta to empty state")
+            }
+            new_state_dict = { ...old_state_dict };
+
+            for (let key in delta) {
+                if (delta[key] !== undefined) {
+                    new_state_dict[key] = delta[key];
+                }
+            }
+        }
+
+        if (old_state_dict) {
+            changeData.old_state = loadFromDict(old_state_dict)
+        }
+        if (new_state_dict) {
+            changeData.new_state = loadFromDict(new_state_dict)
+        }
+
+        return new Change(changeData)
+    }
+
+    delta(): Partial<EntityData> {
+        let delta_dict: Partial<EntityData> = {}
+        let old_state = this.old_state
+        let new_state = this.new_state
+
+        if (old_state === undefined || new_state === undefined) {
+            throw new Error("Cannot get delta from empty state")
+        }
+
+        for (let key in old_state) {
+            let old_val = old_state[key]
+            let new_val = new_state[key]
+
+            if (old_val !== new_val) {
+                delta_dict[key] = new_val
+            }
+        }
+
+        return delta_dict
+    }
+
+    asSafeDeltaDict(): SerializedChangeData {
+        let changeDict = this.asdict()
+
+        if (this.isUpdate()) {
+            changeDict.delta = this.delta()
+            delete changeDict.new_state
+        }
+
+        return changeDict
     }
 
     static create(entity: Entity<EntityData>): Change {
-        return new Change(undefined, undefined, entity)
+        return Change.new(undefined, entity)
     }
 
     static delete(entity: Entity<EntityData>): Change {
-        return new Change(undefined, entity, undefined)
+        return Change.new(entity, undefined)
     }
 
     static update(old_state: Entity<EntityData>, new_state: Entity<EntityData>): Change {
-        return new Change(undefined, old_state, new_state)
+        return Change.new(old_state, new_state)
     }
 
     isCreate(): boolean {

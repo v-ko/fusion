@@ -40,3 +40,9 @@ export function timestamp(dt: Date, microseconds: boolean = false): string {
 export function degreesToRadians(degrees: number) {
   return degrees * (Math.PI / 180);
 }
+
+export function isRunningInDesktopApp(): boolean {
+  // Type assertion to inform TypeScript about electronAPI on the window object
+  const desktopWindow = window as any;
+  return desktopWindow.curatorDesktopAPI !== undefined;
+}

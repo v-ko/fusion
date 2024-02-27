@@ -15,9 +15,9 @@ export abstract class Repository {
 
     abstract insertOne(entity: Entity<EntityData>): Change;
 
-    abstract find<T extends Entity<EntityData>>(filter: SearchFilter): Generator<T>;
+    abstract find(filter: SearchFilter): Generator<Entity<EntityData>>;
 
-    abstract findOne<T extends Entity<EntityData>>(filter: SearchFilter): T | undefined;
+    abstract findOne(filter: SearchFilter): Entity<EntityData> | undefined;
 
     abstract updateOne(entity: Entity<EntityData>): Change;
 

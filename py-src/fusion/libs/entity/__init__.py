@@ -3,6 +3,7 @@ import json
 from datetime import datetime
 from typing import Type, TypeVar, Union
 from dataclasses import dataclass, field, fields
+from pydantic import BaseModel
 
 import fusion
 from fusion.logging import get_logger, LOGGING_LEVEL, LoggingLevels
@@ -70,16 +71,28 @@ def entity_type(entity_class: Type[T], repr: bool = False) -> Type[T]:
 
 
 def get_entity_class_by_name(entity_class_name: str):
+    if entity_class_name not in entity_library:
+        raise Exception(f'Entity class {entity_class_name} not found in '
+                        f'entity library. Have you added the @entity_type '
+                        f'decorator?')
     return entity_library[entity_class_name]
 
 
 def dump_to_dict(entity: Entity) -> dict:
+    # Get entity class to ensure it's registered
+    type_name = type(entity).__name__
+    entity_class = get_entity_class_by_name(type_name)
+
+    if not entity_class:
+        raise Exception(f'Entity class {type_name} not found in entity '
+                        f'library. Have you added the @entity_type decorator?')
+
     entity_dict = entity.asdict()
 
-    if 'type_name' in entity_dict:
-        raise Exception
+    if 'type_name' in entity_dict:  #
+        raise Exception('The type_name identifier is used in the '
+                        'serialization and is prohibited.')
 
-    type_name = type(entity).__name__
     entity_dict['type_name'] = type_name
     return entity_dict
 
@@ -99,6 +112,10 @@ def load_from_json(json_str: str):
 def load_from_dict(entity_dict: dict):
     type_name = entity_dict.pop('type_name')
     cls = get_entity_class_by_name(type_name)
+
+    if not cls:
+        raise Exception(f'Entity class {type_name} not found in entity '
+                        f'library. Have you added the @entity_type decorator?')
 
     if 'id' in entity_dict:
         id = entity_dict.pop('id')
@@ -278,3 +295,8 @@ class Entity:
             return
 
         self.immutability_error_message = error_message
+
+
+class PDSerializedEntity(BaseModel):
+    id: str
+    type_name: str

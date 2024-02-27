@@ -30,7 +30,7 @@ test('Entity methods', () => {
 });
 
 test('Entity copy', () => {
-    let e = new DummyEntity({ id: '123', typeName: 'Note', testProp: 'test' });
+    let e = new DummyEntity({ id: '123', testProp: 'test' });
     let e2 = e.copy();
 
     e2.testProp = 'changed';

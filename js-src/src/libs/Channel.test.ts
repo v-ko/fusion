@@ -1,4 +1,4 @@
-import { addChannel, HandlerFunction, Channel, clearChannels } from './channel'; // Assuming this is the file name
+import { addChannel, HandlerFunction, Channel, clearChannels } from './Channel'; // Assuming this is the file name
 
 describe('Channel', () => {
     let channel: Channel;

@@ -1,5 +1,5 @@
-import { ActionState } from "./libs/action";
-import { Channel, addChannel } from "./libs/channel";
+import { ActionState } from "./libs/Action";
+import { Channel, addChannel } from "./libs/Channel";
 import { getLogger } from "./logging";
 
 const log = getLogger('facade');

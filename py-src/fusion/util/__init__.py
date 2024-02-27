@@ -1,4 +1,6 @@
 from __future__ import annotations
+import re
+
 
 from .point2d import Point2D
 from .rectangle import Rectangle
@@ -51,6 +53,15 @@ def get_new_id(seed=None) -> str:
         return md5(str(seed).encode('utf-8')).hexdigest()[-8:]
     guid = str(uuid.UUID(int=random.getrandbits(128)))[-8:]
     return guid
+
+
+def verify_id_format(id: str) -> bool:
+    """Verify that the given id is in the correct format"""
+    # Lower case ascii letters and numbers only
+    if not id:
+        return False
+    expression = r'^[a-z0-9-]+$'
+    return bool(re.match(expression, id))
 
 
 def find_many_by_props(

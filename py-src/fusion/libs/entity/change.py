@@ -4,11 +4,13 @@ from copy import copy
 from dataclasses import fields
 from datetime import datetime
 from enum import Enum
-from typing import Any, Generator, Iterable
+from typing import Any, Generator, Iterable, Optional
+
+from pydantic import BaseModel
 
 from fusion import get_logger
 from fusion.libs.entity import dump_to_dict, load_from_dict, Entity
-from fusion.util import current_time, get_new_id, timestamp
+from fusion.util import current_time, get_new_id, timestamp as fusion_timestamp
 
 log = get_logger(__name__)
 
@@ -109,7 +111,7 @@ class Change:
     def __init__(self,
                  old_state: Entity = None,
                  new_state: Entity = None,
-                 time: datetime | str = None,
+                 timestamp: str = None,
                  id: str = None):
         """Construct a change object. When the change is of type CREATE or
         DELETE - the old_state or new_state respectively should naturally be
@@ -128,23 +130,45 @@ class Change:
         self.old_state = old_state
         self.new_state = new_state
 
-        self.time = time or current_time()
-        if isinstance(time, str):
-            self.time = datetime.fromisoformat(time)
+        self.timestamp = timestamp or fusion_timestamp(current_time(),
+                                                       microseconds=True)
 
-        self.added = Diff(self, DiffTypes.ADDED)
-        self.removed = Diff(self, DiffTypes.REMOVED)
-        self.updated = Updated(self)
+        self._added = None
+        self._removed = None
+        self._updated = None
 
         if not (self.old_state or self.new_state):
             raise ValueError('Both old and new state are None.')
 
     def __repr__(self) -> str:
-        return (f'<Change id={self.id} time={timestamp(self.time)} '
+        return (f'<Change id={self.id} timestamp={self.timestamp} '
                 f'type={self.change_type} '
                 f'old_state={self.old_state} new_state={self.new_state}>')
 
-    # def __hash__(self):
+    @property
+    def time(self) -> datetime:
+        return datetime.fromisoformat(self.timestamp)
+
+    @property
+    def added(self) -> Diff:
+        if self._added is None:
+            self._added = Diff(self, DiffTypes.ADDED)
+
+        return self._added
+
+    @property
+    def removed(self) -> Diff:
+        if self._removed is None:
+            self._removed = Diff(self, DiffTypes.REMOVED)
+
+        return self._removed
+
+    @property
+    def updated(self) -> Updated:
+        if self._updated is None:
+            self._updated = Updated(self)
+
+        return self._updated
 
     @property
     def change_type(self):
@@ -171,7 +195,7 @@ class Change:
         return dict(old_state=old_state,
                     new_state=new_state,
                     id=self.id,
-                    time=timestamp(self.time, microseconds=True))
+                    timestamp=self.timestamp)
 
     @classmethod
     def from_dict(cls, change_dict: dict) -> Change:
@@ -180,10 +204,12 @@ class Change:
         return cls(**change_dict)
 
     @classmethod
-    def from_safe_delta_dict(cls, change_dict: dict):
+    def from_safe_delta_dict(cls, change_dict: dict) -> Change:
         old_state_dict = change_dict.get('old_state', None)
         new_state_dict = change_dict.get('new_state', None)
-        delta = change_dict.get('delta', None)
+
+        if 'timestamp' not in change_dict:
+            raise Exception('Missing timestamp in change dict')
 
         # Get the delta and use it to generate the new_state
         delta = change_dict.pop('delta', None)
@@ -198,25 +224,14 @@ class Change:
 
         return cls(**change_dict)
 
-    # @classmethod
-    # def from_unsafe_delta_dict(cls, old_state: Entity, delta_dict: dict):
-    #     delta = delta_dict['delta']
-    #     new_state = copy(old_state).replace(**delta)
-    #     return cls(old_state, new_state)
-
     def as_safe_delta_dict(self):
-        if not self.is_update():
-            return self.asdict()
+        self_dict = self.asdict()
 
-        return dict(old_state=dump_to_dict(self.old_state), delta=self.delta())
+        if self.is_update():
+            self_dict['delta'] = self.delta()
+            del self_dict['new_state']
 
-    def as_unsafe_delta_dict(self):
-        if self.is_create():
-            return self.asdict()
-        elif self.is_remove():
-            return dict(new_state=None)
-        else:
-            return dict(delta=self.delta())
+        return self_dict
 
     def delta(self):
         delta_dict = {}
@@ -272,3 +287,11 @@ class Change:
             return Change.CREATE(self.old_state)
         elif self.is_update:
             return Change.UPDATE(self.new_state, self.old_state)
+
+
+class PDChange(BaseModel):
+    id: str
+    old_state: dict | None
+    new_state: Optional[dict | None] = None
+    delta: Optional[dict | None] = None
+    timestamp: str

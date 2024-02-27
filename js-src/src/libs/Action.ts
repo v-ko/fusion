@@ -58,7 +58,7 @@ export const action: IActionDecorator = function (...args: any[]): any {
      *               the method's original name in the action context.
      * @returns A decorator function that modifies the target method to be a MobX action.
      */
-
+    // console.log(`action decorator called with args: ${args}`)
     // Check if it's being used as a decorator (without arguments)
     if (args.length === 3 && typeof args[0] === "function") {
         const [target, key, descriptor] = args as [Object, string | symbol, PropertyDescriptor];
