@@ -5,8 +5,8 @@ interface Command {
 
 }
 
-let _commands: Command[] = [];
 
+let _commands: Command[] = [];
 
 // decorator to register a command
 export function command(title: string) {

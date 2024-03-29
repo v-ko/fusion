@@ -1,4 +1,4 @@
-import { action as mobxAction } from "mobx";
+import { runInAction, action as mobxAction } from "mobx";
 import { fusion } from "..";
 
 // Since mobx does not provide a way to register a global action middleware,
@@ -9,17 +9,20 @@ let _actionCallStack: Array<ActionState> = [];
 function processMethod(descriptor: PropertyDescriptor, name: string, issuer: string): PropertyDescriptor {
     const originalMethod = descriptor.value; // Save the original method
     let funcName = `[${issuer}]${name}`;
-    descriptor.value = mobxAction(funcName, function (this: any, ...args: any[]) {
+    let func = function (this: any, ...args: any[]) {
         // Create a new action state
         let actionState = new ActionState(funcName);
         actionState.setStarted();
         _actionCallStack.push(actionState);
 
         // Push the start state of root actions to the appropriate channels
-        fusion.rootActionEventsChannel.push(actionState);
+        fusion.rootActionEventsChannel.push(actionState.copy());
 
         // Call the original method
-        let result = originalMethod.apply(this, args);
+        let result: any;
+        runInAction(() => {
+            result = originalMethod.apply(this, args);
+        });
 
         // Complete the action state
         actionState = _actionCallStack.pop()!;
@@ -29,7 +32,9 @@ function processMethod(descriptor: PropertyDescriptor, name: string, issuer: str
         fusion.rootActionEventsChannel.push(actionState);
 
         return result;
-    });
+    }
+    // descriptor.value = mobxAction(funcName, func);
+    descriptor.value = func;
     return descriptor;
 }
 
@@ -58,12 +63,15 @@ export const action: IActionDecorator = function (...args: any[]): any {
      *               the method's original name in the action context.
      * @returns A decorator function that modifies the target method to be a MobX action.
      */
-    // console.log(`action decorator called with args: ${args}`)
+
     // Check if it's being used as a decorator (without arguments)
-    if (args.length === 3 && typeof args[0] === "function") {
+    // console.log(`action decorator called with args: ${args}`)
+    if (args.length === 3 && typeof args[0] === 'object') { // Normal method
         const [target, key, descriptor] = args as [Object, string | symbol, PropertyDescriptor];
         return processMethod(descriptor, key.toString(), 'user');
-
+    } else if (args.length === 3 && typeof args[0] === 'function') { // Static method
+        const [target, key, descriptor] = args as [Function, string | symbol, PropertyDescriptor];
+        return processMethod(descriptor, key.toString(), 'user');
     } else if (args.length === 1 && typeof args[0] === 'object') {
         // There's an options dict supplied, which holds the named parameters
         const [options] = args as [{ name?: string, issuer?: string }];
@@ -73,6 +81,9 @@ export const action: IActionDecorator = function (...args: any[]): any {
             const issuer = options.issuer || 'user';
             return processMethod(descriptor, name, issuer);
         }
+    } else {
+        console.log(args)
+        throw new Error('Invalid usage of the action decorator');
     }
 };
 

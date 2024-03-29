@@ -13,10 +13,10 @@ class FusionFacade {
         // Catch start/end of root actions and push them to the rootActionEventsChannel
         this.rootActionEventsChannel = addChannel('rootActionEvents');
 
-        // Test action middleware by logging
-        this.rootActionEventsChannel.subscribe((actionState: ActionState) => {
-            log.info(`Action ${actionState.name} ${actionState.runState}`);
-        });
+        // // Test action middleware by logging
+        // this.rootActionEventsChannel.subscribe((actionState: ActionState) => {
+        //     log.info(`Action ${actionState.name} ${actionState.runState}`);
+        // });
     }
     get reproducibleIds(): boolean {
         return this._reproducibleIds;
