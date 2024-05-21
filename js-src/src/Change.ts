@@ -18,9 +18,9 @@ interface ChangeData {
 
 export interface SerializedChangeData {
     id: string
-    old_state: SerializedEntity | null
-    new_state?: SerializedEntity | null
-    delta?: Partial<EntityData> | null
+    old_state?: SerializedEntity
+    new_state?: SerializedEntity
+    delta?: Partial<EntityData>
     timestamp: string;
 }
 
@@ -82,8 +82,8 @@ export class Change implements ChangeData {
     //                 timestamp=timestamp(self.time, microseconds=True))
 
     asdict(): SerializedChangeData {
-        let oldState: SerializedEntity | null = null
-        let newState: SerializedEntity | null = null
+        let oldState: SerializedEntity | undefined
+        let newState: SerializedEntity | undefined
 
         if (this.old_state) {
             oldState = dumpToDict(this.old_state)
@@ -106,17 +106,17 @@ export class Change implements ChangeData {
             timestamp: serializedChange.timestamp
         }
         let old_state_dict = serializedChange.old_state
-        let new_state_dict = serializedChange.new_state
+        let new_state_dict = serializedChange.new_state as Record<string, any>
 
         // Get the delta and use it to generate the new_state
-        let delta = serializedChange.delta
+        let delta = serializedChange.delta as Record<string, any>
         if (delta !== undefined) {
             if (!old_state_dict) {
                 throw new Error("Cannot apply delta to empty state")
             }
             new_state_dict = { ...old_state_dict };
 
-            for (let key in delta) {
+            for (let key in delta.keys()) {
                 if (delta[key] !== undefined) {
                     new_state_dict[key] = delta[key];
                 }
@@ -127,16 +127,16 @@ export class Change implements ChangeData {
             changeData.old_state = loadFromDict(old_state_dict)
         }
         if (new_state_dict) {
-            changeData.new_state = loadFromDict(new_state_dict)
+            changeData.new_state = loadFromDict(new_state_dict as SerializedEntity)
         }
 
         return new Change(changeData)
     }
 
     delta(): Partial<EntityData> {
-        let delta_dict: Partial<EntityData> = {}
-        let old_state = this.old_state
-        let new_state = this.new_state
+        let delta_dict: Record<string, any> = {}
+        let old_state = this.old_state as Record<string, any>
+        let new_state = this.new_state as Record<string, any>
 
         if (old_state === undefined || new_state === undefined) {
             throw new Error("Cannot get delta from empty state")
@@ -193,7 +193,7 @@ export class Change implements ChangeData {
         return this.changeType() === ChangeTypes.EMPTY
     }
 
-    lastState(): Entity<EntityData> | undefined {
+    get lastState(): Entity<EntityData> | undefined {
         /**
          * Return the latest available state.
          */

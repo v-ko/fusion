@@ -1,0 +1,20 @@
+{
+  "name": "pyfusion",
+  "version": "0.8.7",
+  "description": "A shared library for py/js interoperation.",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest",
+    "lint": "eslint . --ext .ts,.tsx",
+    "watch": "tsc --watch",
+    "prepare": "npm run build"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "devDependencies": {
+    "@types/jest": "^26.0.0",
+    "eslint": "^7.32.0",
+    "jest": "^26.6.0",
+    "typescript": "^4.0.0"
+  }
+}

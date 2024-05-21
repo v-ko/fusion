@@ -1,4 +1,4 @@
-import { fusion } from "..";
+import { fusion } from "../index";
 import { getLogger } from "../logging";
 import { get_new_id as getNewId } from "../util";
 
@@ -9,9 +9,7 @@ let entityLibrary: { [key: string]: typeof Entity<any> } = {};
 let _lastEntityId: number = 0
 
 
-// type EntityId = string | string[];
-
-function getEntityId(): string {
+export function getEntityId(): string {
     if (fusion.reproducibleIds) {
         _lastEntityId += 1;
         return _lastEntityId.toString().padStart(8, '0');
@@ -82,16 +80,11 @@ export abstract class Entity<T extends EntityData> {
     _data: T;
 
     constructor(data: T) {
-        this._data = { ...data };
+        this._data = data;
 
-        // Assign an id if it is not provided
-        if (this._data.id === undefined) {
-            this._data.id = getEntityId()
-        }
-
-        // // Assign a parent id if it is not provided
-        // if (this._data.parentId === undefined) {
-        //     this._data.parentId = ''
+        // // Assign an id if it is not provided
+        // if (this._data.id === undefined) {
+        //     this._data.id = getEntityId()
         // }
     }
 
@@ -123,19 +116,20 @@ export abstract class Entity<T extends EntityData> {
     }
     copy(): this {
         // We're copying the data object in the constructor, so no need to do it here
-        return new (<any>this.constructor)(this._data);
+        return new (<any>this.constructor)(this.data());
     }
     copyWithNewId(): this {
         return this.withId(getEntityId());
     }
     data(): T {
-        return {...this._data};
+        // console.log(this._data)
+        return {...this._data};   // structuredClone(this._data);
     }
     toObject(): T {
-        return {...this._data};
-    };
+        return this.data();
+    }
     asdict(): T {
-        return {...this._data};
+        return this.data();
     }
 
     replace(new_data: Partial<T>) {
@@ -163,7 +157,5 @@ export abstract class Entity<T extends EntityData> {
 
         return leftovers;
     }
-
-
 }
 

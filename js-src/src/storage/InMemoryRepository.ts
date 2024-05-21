@@ -2,85 +2,164 @@ import { Repository, SearchFilter } from "./BaseRepository"
 import { Entity, EntityData } from "../libs/Entity"
 import { Change } from "../Change"
 import { getLogger } from "../logging"
+import { Commit } from "./Commit"
 
 const log = getLogger('InMemoryRepository')
 
 
 export class InMemoryRepository extends Repository {
-    private entity_cache: { [key: string]: any }
+    private perEntityId: Map<string, Entity<EntityData>>;
+    private perEntityParentId: Map<string, Entity<EntityData>[]>;
+    private perEntityType: Map<string, Entity<EntityData>[]>;
+    private _uncommitedChanges: Change[] = [];
 
-    constructor () {
+    constructor() {
         super()
-        this.entity_cache = {}
+        this.perEntityId = new Map();
+        this.perEntityParentId = new Map();
+        this.perEntityType = new Map();
     }
-    upsertToCache(entity: Entity<EntityData>) {
-        this.entity_cache[entity.id] = entity
+
+    private upsertToCache(entity: Entity<EntityData>, isNew: boolean): void {
+        // Update perEntityId map
+        this.perEntityId.set(entity.id, entity);
+
+        // Update perEntityParentId map
+        if (entity.parentId !== null) {
+            const siblings = this.perEntityParentId.get(entity.parentId) || [];
+            const existingIndex = siblings.findIndex(sibling => sibling.id === entity.id);
+            if (existingIndex !== -1 && isNew) {
+                throw new Error(`Entity with ID ${entity.id} already exists in parentId mapping.`);
+            }
+            if (existingIndex === -1) {
+                siblings.push(entity);
+            } else {
+                siblings[existingIndex] = entity; // Update existing entity in case of update
+            }
+            this.perEntityParentId.set(entity.parentId, siblings);
+        }
+
+        // Update perEntityType map
+        const typeName = entity.constructor.name;
+        const typeEntities = this.perEntityType.get(typeName) || [];
+        const typeIndex = typeEntities.findIndex(e => e.id === entity.id);
+        if (typeIndex === -1 && isNew) {
+            typeEntities.push(entity);
+        } else if (typeIndex !== -1 && !isNew) {
+            typeEntities[typeIndex] = entity; // Update existing entity in case of update
+        } else if (isNew) {
+            throw new Error(`Entity with ID ${entity.id} already exists in type mapping.`);
+        }
+        this.perEntityType.set(typeName, typeEntities);
     }
-    popFromCache(id: string): Entity<EntityData> | undefined {
-        let entity = this.entity_cache[id]
-        delete this.entity_cache[id]
-        return entity
+
+    private removeFromCache(entity: Entity<EntityData>): void {
+        // Remove from perEntityId map
+        this.perEntityId.delete(entity.id);
+
+        // Remove from perEntityParentId map
+        if (entity.parentId !== null) {
+            const siblings = this.perEntityParentId.get(entity.parentId) || [];
+            const index = siblings.findIndex(sibling => sibling.id === entity.id);
+            if (index !== -1) {
+                siblings.splice(index, 1);
+                if (siblings.length > 0) {
+                    this.perEntityParentId.set(entity.parentId, siblings);
+                } else {
+                    this.perEntityParentId.delete(entity.parentId);
+                }
+            }
+        }
+
+        // Remove from perEntityType map
+        const typeName = entity.constructor.name;
+        const typeEntities = this.perEntityType.get(typeName) || [];
+        const typeIndex = typeEntities.findIndex(e => e.id === entity.id);
+        if (typeIndex !== -1) {
+            typeEntities.splice(typeIndex, 1);
+            if (typeEntities.length > 0) {
+                this.perEntityType.set(typeName, typeEntities);
+            } else {
+                this.perEntityType.delete(typeName);
+            }
+        }
     }
+
     insertOne(entity: Entity<EntityData>): Change {
-        if (entity.id in this.entity_cache) {
-            throw new Error(`Entity with id ${entity.id} already exists`)
+        // console.log('Inserting entity', entity.id, entity.parentId, entity.constructor.name)
+        if (this.perEntityId.has(entity.id)) {
+            throw new Error(`Entity with ID ${entity.id} already exists.`);
         }
-        this.entity_cache[entity.id] = entity
-        return Change.create(entity)
+        this.upsertToCache(entity, true);
+        return Change.create(entity);
     }
+
     updateOne(entity: Entity<EntityData>): Change {
-        let oldEntity = this.popFromCache(entity.id)
-        if (!oldEntity) {
-            throw new Error(`Entity with id ${entity.id} does not exist`)
-    }
-        this.entity_cache[entity.id] = entity
-        return Change.update(oldEntity, entity)
-    }
-    removeOne(entity: Entity<EntityData>): Change {
-        let oldEntity = this.popFromCache(entity.id)
-        if (!oldEntity) {
-            throw new Error(`Entity with id ${entity.id} does not exist`)
+        if (!this.perEntityId.has(entity.id)) {
+            throw new Error(`Entity with ID ${entity.id} does not exist.`);
         }
-        return Change.delete(oldEntity)
+        this.upsertToCache(entity, false);
+        return Change.update(entity, entity);
     }
+
+    removeOne(entity: Entity<EntityData>): Change {
+        if (!this.perEntityId.has(entity.id)) {
+            throw new Error(`Entity with ID ${entity.id} does not exist.`);
+        }
+        let oldEntity = this.perEntityId.get(entity.id);
+        if (oldEntity) {
+            this.removeFromCache(oldEntity);
+        }
+        return Change.delete(entity);
+    }
+
 
     *find<T extends Entity<EntityData>>(filter: SearchFilter = {}): Generator<T> {
-        // TODO: Optimize this
-        for (let entity_id in this.entity_cache) {
-            let entity = this.entity_cache[entity_id]
-            if (filter.id && entity.id !== filter.id) {
-                continue
+        const { id, type, parentId, ...otherFilters } = filter;
+
+        let candidates: Entity<EntityData>[] = [];
+
+        // Filter by ID
+        if (id !== undefined) {
+            const entity = this.perEntityId.get(id);
+            if (entity && (!type || entity instanceof type)) {
+                candidates.push(entity);
             }
-            if (filter.type && entity.constructor !== filter.type) {
-                continue
+        }
+        // Filter by Parent ID
+        else if (parentId !== undefined) {
+            const entities = this.perEntityParentId.get(parentId) || [];
+            if (type) {
+                candidates = entities.filter(entity => entity instanceof type);
+            } else {
+                candidates = entities;
             }
-            if (filter.parentId && entity.parentId !== filter.parentId) {
-                continue
-            }
-            if (filter) {
-                let match = true
-                for (let key in filter) {
-                    if (key === 'type') continue; // Skip the 'type' property
-                    if (key === 'id') continue; // Skip the 'id' property
-                    if (key === 'parentId') continue; // Skip the 'parentId' property
-                    if (entity[key] !== filter[key]) {
-                        match = false
-                        break
-                    }
+        }
+        // Filter by Type
+        else if (type !== undefined) {
+            const typeName = type.name;
+            candidates = this.perEntityType.get(typeName) || [];
+        } else {
+            // If no specific ID, type, or Parent ID is provided, consider all entities
+            candidates = Array.from(this.perEntityId.values());
+        }
+
+        // Apply otherFilters
+        candidatesLoop: for (const candidate of candidates as Record<string, any>[]) {
+            for (const [key, value] of Object.entries(otherFilters)) {
+                if (candidate[key] !== value) {
+                    continue candidatesLoop; // Skip entities that do not match other filters
                 }
-                if (!match) {
-                    continue
-                }
             }
-            yield entity
+            yield candidate as T;
         }
     }
+
     findOne<T extends Entity<EntityData>>(filter: SearchFilter): T | undefined {
-        let generator = this.find<T>(filter);
-        let result = generator.next();
-        if (result.done) {
-            return undefined;
+        for (const entity of this.find<T>(filter)) {
+            return entity; // Return the first entity that matches the filter
         }
-        return result.value;
+        return undefined; // If no entity matches the filter
     }
+
 }
