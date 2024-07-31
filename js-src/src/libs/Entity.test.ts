@@ -1,9 +1,10 @@
-import { Entity, EntityData } from './Entity'
+import { Entity, EntityData, dumpToDict, entityType, loadFromDict } from './Entity'
 
 interface IDummyEntity extends EntityData {
     testProp: string;
 }
 
+@entityType('DummyEntity')
 class DummyEntity extends Entity<IDummyEntity> implements IDummyEntity {
     get parentId(): string {
         return '';
@@ -25,8 +26,8 @@ test('Entity methods', () => {
     let outDict = e.toObject();
 
     expect(e.id).toBe('456');
-    expect(outDict).toStrictEqual({ id: '456', testProp: 'test2' });
-    expect(leftovers).toStrictEqual({ s: 'Note3' });
+    expect(outDict).toEqual({ id: '456', testProp: 'test2' });
+    expect(leftovers).toEqual({ s: 'Note3' });
 });
 
 test('Entity copy', () => {
@@ -37,4 +38,12 @@ test('Entity copy', () => {
 
     expect(e.testProp).toBe('test');
     expect(e2.testProp).toBe('changed');
+});
+
+test('Entity serialization and deserialization', () => {
+    let e = new DummyEntity({ id: '123', testProp: 'test' });
+    let eDict = dumpToDict(e);
+    let e2 = loadFromDict(eDict) as DummyEntity;
+
+    expect(e2._data).toEqual(e._data);
 });

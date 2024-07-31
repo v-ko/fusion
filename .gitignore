@@ -46,3 +46,5 @@ release-routine.md
 
 dist
 build
+
+*.tsbuildinfo

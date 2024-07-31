@@ -1,6 +1,6 @@
 {
   "name": "pyfusion",
-  "version": "0.8.7",
+  "version": "0.9.0",
   "description": "A shared library for py/js interoperation.",
   "scripts": {
     "build": "tsc",

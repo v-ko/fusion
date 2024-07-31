@@ -1,9 +1,26 @@
-import { runInAction, action as mobxAction } from "mobx";
-import { fusion } from "..";
+import { runInAction } from "mobx";
+import { getLogger } from "../logging";
+
+const log = getLogger('Action library');
 
 // Since mobx does not provide a way to register a global action middleware,
 // we use a global action call stack to track the action nesting.
 let _actionCallStack: Array<ActionState> = [];
+
+// Middleware related
+let _rootActionStartedHooks: Array<() => void> = [];
+let _rootActionCompletedHooks: Array<() => void> = [];
+
+// Register the root action hooks
+export function registerRootActionStartedHook(hook: () => void) {
+    log.info('registerRootActionStartedHook called')
+    _rootActionStartedHooks.push(hook);
+}
+
+export function registerRootActionCompletedHook(hook: () => void) {
+    log.info('registerRootActionCompletedHook called')
+    _rootActionCompletedHooks.push(hook);
+}
 
 
 function processMethod(descriptor: PropertyDescriptor, name: string, issuer: string): PropertyDescriptor {
@@ -13,10 +30,15 @@ function processMethod(descriptor: PropertyDescriptor, name: string, issuer: str
         // Create a new action state
         let actionState = new ActionState(funcName);
         actionState.setStarted();
+
+        if (_actionCallStack.length === 0) {
+            // Call the root action hooks
+            _rootActionStartedHooks.forEach(hook => hook());
+        }
         _actionCallStack.push(actionState);
 
-        // Push the start state of root actions to the appropriate channels
-        fusion.rootActionEventsChannel.push(actionState.copy());
+        // // Push the start state of root actions to the appropriate channels
+        // fusion.rootActionEventsChannel.push(actionState.copy());
 
         // Call the original method
         let result: any;
@@ -28,8 +50,13 @@ function processMethod(descriptor: PropertyDescriptor, name: string, issuer: str
         actionState = _actionCallStack.pop()!;
         actionState.setCompleted();
 
-        // Push the completed state of root actions to the appropriate channels
-        fusion.rootActionEventsChannel.push(actionState);
+        if (_actionCallStack.length === 0) {
+            // Call the root action hooks
+            _rootActionCompletedHooks.forEach(hook => hook());
+        }
+
+        // // Push the completed state of root actions to the appropriate channels
+        // fusion.rootActionEventsChannel.push(actionState);
 
         return result;
     }

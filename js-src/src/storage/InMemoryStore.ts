@@ -1,17 +1,15 @@
-import { Repository, SearchFilter } from "./BaseRepository"
+import { Store, SearchFilter } from "./BaseStore"
 import { Entity, EntityData } from "../libs/Entity"
 import { Change } from "../Change"
 import { getLogger } from "../logging"
-import { Commit } from "./Commit"
 
 const log = getLogger('InMemoryRepository')
 
 
-export class InMemoryRepository extends Repository {
+export class InMemoryStore extends Store {
     private perEntityId: Map<string, Entity<EntityData>>;
     private perEntityParentId: Map<string, Entity<EntityData>[]>;
     private perEntityType: Map<string, Entity<EntityData>[]>;
-    private _uncommitedChanges: Change[] = [];
 
     constructor() {
         super()
@@ -21,6 +19,9 @@ export class InMemoryRepository extends Repository {
     }
 
     private upsertToCache(entity: Entity<EntityData>, isNew: boolean): void {
+        // Copy the entity to protect the repo from untracked changes
+        entity = entity.copy();
+
         // Update perEntityId map
         this.perEntityId.set(entity.id, entity);
 
@@ -95,11 +96,12 @@ export class InMemoryRepository extends Repository {
     }
 
     updateOne(entity: Entity<EntityData>): Change {
-        if (!this.perEntityId.has(entity.id)) {
+        let oldState = this.perEntityId.get(entity.id);
+        if (!oldState) {
             throw new Error(`Entity with ID ${entity.id} does not exist.`);
         }
         this.upsertToCache(entity, false);
-        return Change.update(entity, entity);
+        return Change.update(oldState, entity);
     }
 
     removeOne(entity: Entity<EntityData>): Change {
@@ -147,7 +149,7 @@ export class InMemoryRepository extends Repository {
         // Apply otherFilters
         candidatesLoop: for (const candidate of candidates as Record<string, any>[]) {
             for (const [key, value] of Object.entries(otherFilters)) {
-                if (candidate[key] !== value) {
+                if (candidate._data[key] !== value) {
                     continue candidatesLoop; // Skip entities that do not match other filters
                 }
             }

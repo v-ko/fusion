@@ -1,6 +1,6 @@
 import { fusion } from "../index";
 import { getLogger } from "../logging";
-import { get_new_id as getNewId } from "../util";
+import { createId } from "../util";
 
 const log = getLogger('entity.ts');
 
@@ -14,7 +14,7 @@ export function getEntityId(): string {
         _lastEntityId += 1;
         return _lastEntityId.toString().padStart(8, '0');
     } else {
-        return getNewId();
+        return createId();
     }
 }
 
@@ -43,28 +43,33 @@ export function getEntityClassByName<T extends typeof Entity>(entity_class_name:
 }
 
 
-export interface SerializedEntity extends EntityData {
+export interface SerializedEntityData extends EntityData {
     type_name: string;
 }
 
 // Serialization related functions
-export function dumpToDict<T extends Entity<EntityData>>(entity: T): SerializedEntity {
-    const entityDict = entity.toObject() as SerializedEntity
+export function dumpToDict<T extends Entity<EntityData>>(entity: T): SerializedEntityData {
+    const entityDict = entity.toObject() as SerializedEntityData
+    const typeName = entity.constructor.name
+    // If not in the library, throw error
+    if (entityLibrary[typeName] === undefined) {
+        throw new Error(`Entity class ${typeName} not found in the library`);
+    }
     entityDict.type_name = entity.constructor.name
 
     return entityDict
 }
 
 
-export function loadFromDict<T extends SerializedEntity>(entityDict: T): Entity<EntityData> {
-    const typeName = entityDict.type_name
-    const cls = getEntityClassByName(typeName)
+export function loadFromDict<T extends SerializedEntityData>(entityDict: T): Entity<EntityData> {
+    const {type_name, ...entityData} = entityDict
+    const cls = getEntityClassByName(type_name)
     let instance: any
 
     if (cls === undefined) {
-        throw new Error(`Entity class ${typeName} not found.`)
+        throw new Error(`Entity class ${type_name} not found.`)
     } else {
-        instance = new (cls as new (data: T) => Entity<T>)(entityDict)
+        instance = new (cls as new (data: EntityData) => Entity<EntityData>)(entityData as EntityData)
     }
     return instance
 }
@@ -122,8 +127,10 @@ export abstract class Entity<T extends EntityData> {
         return this.withId(getEntityId());
     }
     data(): T {
-        // console.log(this._data)
-        return {...this._data};   // structuredClone(this._data);
+        // This is not great, since we can have objects two levels down
+        // return {...this._data};
+
+        return structuredClone(this._data);
     }
     toObject(): T {
         return this.data();
@@ -157,5 +164,30 @@ export abstract class Entity<T extends EntityData> {
 
         return leftovers;
     }
+}
+
+// Helper function to check deep equality of entity properties up to two levels
+export function entityKeysAreEqual(value1: any, value2: any): boolean {
+    if (typeof value1 !== typeof value2) return false;
+    if (typeof value1 !== 'object' || value1 === null || value2 === null) {
+        return value1 === value2;
+    }
+
+    const keys1 = Object.keys(value1);
+    const keys2 = Object.keys(value2);
+    if (keys1.length !== keys2.length) return false;
+
+    for (const key of keys1) {
+        const val1 = value1[key];
+        const val2 = value2[key];
+        // Check second level
+        if (typeof val1 === 'object' && val1 !== null && val2 !== null) {
+            if (!entityKeysAreEqual(val1, val2)) return false;
+        } else if (val1 !== val2) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
