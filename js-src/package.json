@@ -1,20 +1,21 @@
 {
-  "name": "pyfusion",
+  "name": "python-fusion",
   "version": "0.9.0",
   "description": "A shared library for py/js interoperation.",
   "scripts": {
-    "build": "tsc",
+    "dev": "vite",
+    "build": "tsc && vite build",
     "test": "jest",
     "lint": "eslint . --ext .ts,.tsx",
-    "watch": "tsc --watch",
-    "prepare": "npm run build"
+    "preview": "vite preview"
   },
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "dependencies": {
+    "mobx": "^6.13.1"
+  },
   "devDependencies": {
-    "@types/jest": "^26.0.0",
-    "eslint": "^7.32.0",
-    "jest": "^26.6.0",
-    "typescript": "^4.0.0"
+    "@types/jest": "^29.5.12",
+    "eslint": "^9.8.0",
+    "jest": "^29.7.0",
+    "typescript": "^5.5.4"
   }
 }

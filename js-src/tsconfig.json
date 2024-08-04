@@ -1,5 +1,5 @@
 {
-  "extends": "../../tsconfig.json",
+  // "extends": "../../tsconfig.json",
   "compilerOptions": {
     "declarationMap": true,
     "target": "es6",                                  /* Set the JavaScript language version for emitted JavaScript and include compatible library declarations. */
@@ -17,9 +17,6 @@
     "resolveJsonModule": true,
 
     // Custom
-    "noUnusedLocals": false,
-    "noUnusedParameters": false,
-
     "lib": [
       "DOM",
       "WebWorker"
