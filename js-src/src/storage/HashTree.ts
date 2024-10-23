@@ -68,7 +68,7 @@ export class HashTreeNode {
         }
 
         this.hash = await hash(this.entityDataHash, this.childrenSorted.map((child) => child.hash));
-        log.info('Node hash', this.hash)
+        log.info('Updated node hash to', this.hash)
     }
     addChild(child: HashTreeNode) {
         if (child.entityId === SUPER_ROOT_ID){
@@ -113,10 +113,12 @@ export class HashTree {
         if (node.hashOutdated) {
             return;
         }
-        node.setHashOutdated();
-        while (this.nodes[node.parentId]) {
-            node = this.nodes[node.parentId];
-            node.setHashOutdated();
+        node.setHashOutdated();  // Set for the node itself
+
+        // Set for all parents
+        let parent = this.nodes[node.parentId];
+        if (parent) {
+            this.setHashOutdated(parent);
         }
     }
 
@@ -216,7 +218,6 @@ export class HashTree {
         }
 
         await this.root.updateHash();
-        log.info('Tree hash updated')
     }
 
     rootHash(): string {
