@@ -153,7 +153,7 @@ export class InMemoryStore extends Store {
                     continue candidatesLoop; // Skip entities that do not match other filters
                 }
             }
-            yield candidate as T;
+            yield candidate.copy() as T;
         }
     }
 
