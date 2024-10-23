@@ -1,5 +1,8 @@
+import { getLogger } from "../logging";
 import { Commit, CommitData } from "./Commit";
 import { CommitGraph, CommitGraphData } from "./CommitGraph";
+
+let log = getLogger('BaseRepository')
 
 export interface ResetFilter {
     relativeToHead: number;
@@ -44,7 +47,7 @@ export abstract class BaseAsyncRepository {
         // Get the update info from the remote
         let localGraph = await this.getCommitGraph()
         let remoteGraph = await repository.getCommitGraph()
-        console.log('Pulling from remote', repository, localGraph, remoteGraph)
+        log.info('Pulling from remote', repository, localGraph, remoteGraph)
 
         // Since we'll update the commit graph to the received one - we need to
         // ensure that the changes are rational, remove unneeded commits, and

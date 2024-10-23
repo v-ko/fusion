@@ -26,7 +26,6 @@ export class AsyncInMemoryRepository extends BaseAsyncRepository {
     }
 
     async init(localBranchName: string) {
-        log.info('Init for in-memory repository')
         this._currentBranch = localBranchName
         this._commitGraph.createBranch(this._currentBranch)
         this._hashTree = await buildHashTree(this.headStore)

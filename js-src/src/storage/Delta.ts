@@ -1,5 +1,8 @@
 import { Change, ChangeTypes } from "../Change";
 import { SerializedEntityData, dumpToDict, entityKeysAreEqual } from "../libs/Entity";
+import { getLogger } from "../logging";
+
+let log = getLogger('Delta')
 
 export type EntityDeltaComponent = Partial<SerializedEntityData>
 
@@ -145,9 +148,11 @@ export class Delta {
         } else if (firstCT === ChangeTypes.CREATE && nextCT === ChangeTypes.DELETE) {
             this.removeEntityDelta(entityDelta[0])
 
-            // Else if irrational sequence
-        } else {
-            throw Error('Irrational delta sequence detected')
+        } else if (nextCT === ChangeTypes.EMPTY) {
+            // Nothing to do
+
+        } else {  // Else if irrational sequence
+            log.error('Irrational delta sequence detected when merging delta', entityDelta, 'into', this)
         }
     }
 

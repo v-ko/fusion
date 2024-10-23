@@ -1,6 +1,7 @@
 import { AsyncInMemoryRepository } from "./AsyncInMemoryRepo";
 import { InMemoryStore } from "./InMemoryStore";
-import { Entity, EntityData, entityType } from "../libs/Entity";
+import { Entity, entityType } from "../libs/Entity";
+import type { EntityData } from "../libs/Entity";
 import { Change } from "../Change";
 import { deltaFromChanges } from "./BaseStore";
 import { Commit } from "./Commit";
