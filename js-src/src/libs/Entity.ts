@@ -107,27 +107,20 @@ export abstract class Entity<T extends EntityData> {
         return this.parentId;
     }
 
-    // withId<S extends typeof this>(new_id: string): S {
-    //     const newData = { ...this._data, id: new_id };
-    //     return new (this.constructor as { new(data: T): S })(newData);
-    // }
-    // copy<S extends typeof this>(): S {
-    //     // We're copying the data object in the constructor, so no need to do it here
-    //     return new (this.constructor as { new(data: T): S })(this._data);
-    // }
     withId(new_id: string): this {
         const newData = { ...this._data, id: new_id };
         return new (<any>this.constructor)(newData);
     }
     copy(): this {
-        // We're copying the data object in the constructor, so no need to do it here
+        // We're doing the deep copy in data(), so no need to do it here
         return new (<any>this.constructor)(this.data());
     }
     copyWithNewId(): this {
         return this.withId(getEntityId());
     }
     data(): T {
-        // This is not great, since we can have objects two levels down
+        // This is not great, since we can have objects 3 levels down
+        // like entity.content.image.width
         // return {...this._data};
 
         return structuredClone(this._data);
@@ -166,13 +159,32 @@ export abstract class Entity<T extends EntityData> {
     }
 }
 
-// Helper function to check deep equality of entity properties up to two levels
-export function entityKeysAreEqual(value1: any, value2: any): boolean {
-    if (typeof value1 !== typeof value2) return false;
-    if (typeof value1 !== 'object' || value1 === null || value2 === null) {
-        return value1 === value2;
+// Helper function to check deep equality of entity properties up to 3 levels
+// like entity.content.image.width (that's the max depth)
+export function entityKeysAreEqual(value1: any, value2: any, depth = 1): boolean {
+    if (depth > 3) {
+        throw new Error("Depth exceeded: This function supports comparison up to 3 levels deep only.");
     }
 
+    if (typeof value1 !== typeof value2) return false;
+
+    // Handling nulls and non-objects
+    if (value1 === null || value2 === null) return value1 === value2;
+    if (typeof value1 !== 'object' || typeof value2 !== 'object') return value1 === value2;
+
+    // Check if both are arrays
+    if (Array.isArray(value1) && Array.isArray(value2)) {
+        if (value1.length !== value2.length) return false;
+        for (let i = 0; i < value1.length; i++) {
+            if (!entityKeysAreEqual(value1[i], value2[i], depth + 1)) return false;
+        }
+        return true;
+    }
+
+    // Ensure both values are of type object and not one of them is an array
+    if (Array.isArray(value1) || Array.isArray(value2)) return false;
+
+    // Compare properties if both are objects
     const keys1 = Object.keys(value1);
     const keys2 = Object.keys(value2);
     if (keys1.length !== keys2.length) return false;
@@ -180,9 +192,8 @@ export function entityKeysAreEqual(value1: any, value2: any): boolean {
     for (const key of keys1) {
         const val1 = value1[key];
         const val2 = value2[key];
-        // Check second level
         if (typeof val1 === 'object' && val1 !== null && val2 !== null) {
-            if (!entityKeysAreEqual(val1, val2)) return false;
+            if (!entityKeysAreEqual(val1, val2, depth + 1)) return false;
         } else if (val1 !== val2) {
             return false;
         }
@@ -190,4 +201,3 @@ export function entityKeysAreEqual(value1: any, value2: any): boolean {
 
     return true;
 }
-
