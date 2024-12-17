@@ -8,20 +8,20 @@ const log = getLogger('Action library');
 let _actionCallStack: Array<ActionState> = [];
 
 // Middleware related
-let _rootActionStartedHooks: Array<() => void> = [];
-let _rootActionCompletedHooks: Array<() => void> = [];
+type ReportActionStateHook = (action: ActionState) => void;
+let _rootActionStartedHooks: Array<ReportActionStateHook> = [];
+let _rootActionCompletedHooks: Array<ReportActionStateHook> = [];
 
 // Register the root action hooks
-export function registerRootActionStartedHook(hook: () => void) {
+export function registerRootActionStartedHook(hook: ReportActionStateHook) {
     log.info('registerRootActionStartedHook called')
     _rootActionStartedHooks.push(hook);
 }
 
-export function registerRootActionCompletedHook(hook: () => void) {
+export function registerRootActionCompletedHook(hook: ReportActionStateHook) {
     log.info('registerRootActionCompletedHook called')
     _rootActionCompletedHooks.push(hook);
 }
-
 
 function processMethod(descriptor: PropertyDescriptor, name: string, issuer: string): PropertyDescriptor {
     const originalMethod = descriptor.value; // Save the original method
@@ -33,12 +33,9 @@ function processMethod(descriptor: PropertyDescriptor, name: string, issuer: str
 
         if (_actionCallStack.length === 0) {
             // Call the root action hooks
-            _rootActionStartedHooks.forEach(hook => hook());
+            _rootActionStartedHooks.forEach(hook => hook(actionState));
         }
         _actionCallStack.push(actionState);
-
-        // // Push the start state of root actions to the appropriate channels
-        // fusion.rootActionEventsChannel.push(actionState.copy());
 
         // Call the original method
         let result: any;
@@ -52,11 +49,8 @@ function processMethod(descriptor: PropertyDescriptor, name: string, issuer: str
 
         if (_actionCallStack.length === 0) {
             // Call the root action hooks
-            _rootActionCompletedHooks.forEach(hook => hook());
+            _rootActionCompletedHooks.forEach(hook => hook(actionState));
         }
-
-        // // Push the completed state of root actions to the appropriate channels
-        // fusion.rootActionEventsChannel.push(actionState);
 
         return result;
     }
