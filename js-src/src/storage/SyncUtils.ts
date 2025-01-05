@@ -1,6 +1,6 @@
 import { Commit } from "./Commit";
 import { BaseAsyncRepository, InternalRepoUpdate, RepoUpdate } from "./BaseRepository";
-import { ChangeTypes } from "../Change";
+import { ChangeType } from "../Change";
 import { CommitGraph } from "./CommitGraph";
 
 /**
@@ -124,39 +124,41 @@ export async function autoMergeForSync(repo: BaseAsyncRepository, localBranchNam
 
             let localDelta = localCommit.delta
             for (let entityId of dominantEntityIds) {
-                let localEntityDelta = localDelta.entityDelta(entityId)
+                let localChange = localDelta.change(entityId)
+                let dominantChange = dominantDelta.change(entityId)
 
                 // Skip dominant entity deltas where there's no local
-                if (localEntityDelta === undefined) {
+                if (localChange === undefined) {
                     continue
                 }
 
-                let localChangeType = localDelta.changeType(entityId)
-                let dominantChangeType = dominantDelta.changeType(entityId)
+                let localChangeType = localChange.type()
+                let dominantChangeType = dominantChange!.type()
+                // throw new Error("None of this is tested. The above line started giving an error after refactoring to Change from ChangeData")
 
                 // Drop data for entity create/delete operations
-                if (dominantChangeType === ChangeTypes.CREATE || dominantChangeType === ChangeTypes.DELETE) {
-                    localCommit.delta.removeEntityDelta(entityId)
-                } else if (dominantChangeType === ChangeTypes.UPDATE) {
+                if (dominantChangeType === ChangeType.CREATE || dominantChangeType === ChangeType.DELETE) {
+                    localCommit.delta.removeChange(entityId)
+                } else if (dominantChangeType === ChangeType.UPDATE) {
                     // On dominant update
                     // Drop local delta if it's a create or delete
-                    if (localChangeType === ChangeTypes.CREATE || localChangeType === ChangeTypes.DELETE) {
-                        localCommit.delta.removeEntityDelta(entityId)
-                    } else if (localChangeType === ChangeTypes.UPDATE) {
+                    if (localChangeType === ChangeType.CREATE || localChangeType === ChangeType.DELETE) {
+                        localCommit.delta.removeChange(entityId)
+                    } else if (localChangeType === ChangeType.UPDATE) {
                         // Drop only keys that are present in the dominant
-                        let dominantEntityDelta = dominantDelta.entityDelta(entityId)! // is in dominantDelta.entityIds
+                        let dominantEntityDelta = dominantDelta.changeData(entityId)! // is in dominantDelta.entityIds
                         for (let key of Object.keys(dominantEntityDelta[0])) {
                             let entId: string;
                             let forwardLC: any; // To avoid TS error
                             let reverseLC: any;
-                            [entId, forwardLC, reverseLC] = localEntityDelta // components of the local entity delta
+                            [entId, forwardLC, reverseLC] = localChange.data // components of the local entity delta
                             if (forwardLC.hasOwnProperty(key)) {
                                 delete forwardLC[key]
                                 delete reverseLC[key]
                             }
                         }
-                        localCommit.delta.removeEntityDelta(entityId)
-                        localCommit.delta.addEntityDelta(localEntityDelta)
+                        localCommit.delta.removeChange(entityId)
+                        localCommit.delta.addChangeFromData(localChange.data)
                     }
                 }
             }

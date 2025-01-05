@@ -62,7 +62,6 @@ export abstract class BaseAsyncRepository {
             missingCommits = await repository.getCommits(missingCommits.map((c) => c.id))
         }
 
-        // try{
         await this._checkAndApplyUpdate(remoteGraph, missingCommits)
 
     }

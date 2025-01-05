@@ -1,44 +1,127 @@
-import { Change, ChangeTypes } from "../Change";
+import { ChangeType } from "../Change";
 import { Store } from "./BaseStore";
 import { dumpToDict } from '../libs/Entity';
 import { cryptoModule } from "../util";
 import { getLogger } from "../logging";
+import { Delta } from "./Delta";
 
 const log = getLogger('HashTree')
 
 const subtleCrypto = cryptoModule();
-const SUPER_ROOT_ID = ''
+
+function sortObjectProperties(obj: any, depth: number = 1): any {
+    if (depth > 3) {
+        throw new Error("Depth exceeded: This function supports sorting up to 3 levels deep only.");
+    }
+
+    if (Array.isArray(obj)) {
+        return obj.map(item =>
+            typeof item === 'object' && item !== null ?
+                sortObjectProperties(item, depth + 1) :
+                item
+        );
+    }
+
+    if (typeof obj !== 'object' || obj === null) {
+        return obj;
+    }
+
+    const sorted: { [key: string]: any } = {};
+    Object.keys(obj).sort().forEach(key => {
+        const value = obj[key];
+        sorted[key] = typeof value === 'object' && value !== null ?
+            sortObjectProperties(value, depth + 1) :
+            value;
+    });
+
+    return sorted;
+}
+
+function getEntityDataString(entity: any): string {
+    const data = dumpToDict(entity);
+    const sortedData = sortObjectProperties(data);
+    return JSON.stringify(sortedData);
+}
+
+enum NodeType {  // The hash struct needs to index multiple trees in the store
+    SUPER_ROOT,  // This is the store root
+    ROOT,        // Each entity without a parent is a root
+    NON_ROOT     // All other entities are non-roots
+}
 
 export class HashTreeNode {
     // The store itsel is not an entity, so the root has null id
-    entityId: string = SUPER_ROOT_ID; // '' means the main/super root node
-    parentId: string = ''; // '' means no parent entity (those are under the main/super root)
-    entityDataHash: string = ''; // '' is possible at init or for the super root node (all others are serializable and should be specified on instantiation or at data updates)
-    hash: string = ''; // '' means outdated
+    tree: HashTree;
+    type: NodeType;
+    entityId: string; // The super-root has an empty id
+    parentId: string = ''; //  root nodes have an empty parent id
+
     children: { [key: string]: HashTreeNode } = {}; // by entity id
     childrenSorted: HashTreeNode[] = []; // sorted by entity id
-    removed: boolean = false;
-    childrenSortOutdated: boolean = false;
-    // dataHashOutdated: boolean = false;
 
-    constructor(entityId: string, parentId: string, entityDataHash: string, isRoot: boolean = false) {
+    entityDataHash: string = ''; // '' is possible at init or for the super root node (all others are serializable and should be specified on instantiation or at data updates)
+    _hash: string = '';
+
+    _hashOutdated: boolean = true;
+    _removed: boolean = false;
+    _childrenNotSorted: boolean = false;
+
+    constructor(tree: HashTree, entityId: string, parentId: string, entityDataHash: string, type: NodeType) {
+        this.tree = tree;
+        this.type = type;
         this.entityId = entityId;
         this.parentId = parentId;
         this.entityDataHash = entityDataHash;
+    }
 
-        if (!isRoot && entityId === '') {
-            throw Error("Non-root nodes must have an entity id");
+    data(): any {
+        return {
+            entityId: this.entityId,
+            parentId: this.parentId,
+            entityDataHash: this.entityDataHash,
+            hash: this.hash,
+            hashOutdated: this.hashOutdated,
+            removed: this.removed,
+            childrenSortOutdated: this.childrenSortOutdated,
+            children: this.childrenSorted.map(child => child.data())
         }
-        // if (isRoot) {
-        //     this.dataHashOutdated = false;
-        // }
+    }
+
+    get hash(): string {
+        if (this._hashOutdated) {
+            throw Error("Hash requested, but it's outdated.");
+        }
+        return this._hash;
     }
 
     get hashOutdated(): boolean {
-        return this.hash === '' || this.childrenSortOutdated //|| this.dataHashOutdated;
+        return this._hashOutdated;
     }
     setHashOutdated() {
-        this.hash = '';
+        /**
+         * Set hash outdated for this node and all its parents
+         */
+        this._hashOutdated = true;
+
+        // Set for all parents
+        let parent = this.tree.nodes[this.parentId];
+        if (parent && !parent.hashOutdated) {
+            parent.setHashOutdated();
+        }
+    }
+    get removed(): boolean {
+        return this._removed;
+    }
+    markAsRemoved() {
+        this._removed = true;
+        this.setHashOutdated();
+    }
+    get childrenSortOutdated(): boolean {
+        return this._childrenNotSorted;
+    }
+    setChildrenSortOutdated() {
+        this._childrenNotSorted = true;
+        this.setHashOutdated();
     }
     sortChildren() {
         this.childrenSorted.sort((a, b) => {
@@ -50,34 +133,19 @@ export class HashTreeNode {
             }
             return 0;
         });
-        this.childrenSortOutdated = false;
+        this._childrenNotSorted = false;
+        this.setHashOutdated();
     }
-    async updateHash() {
-        if (this.removed) {
-            throw Error("Cannot update hash of a removed node");
-        }
 
-        if (this.childrenSortOutdated) {
-            this.sortChildren();
-        }
-
-        for (let child of this.childrenSorted) {
-            if (child.hashOutdated) {
-                await child.updateHash();
-            }
-        }
-
-        this.hash = await hash(this.entityDataHash, this.childrenSorted.map((child) => child.hash));
-        log.info('Updated node hash to', this.hash)
-    }
     addChild(child: HashTreeNode) {
-        if (child.entityId === SUPER_ROOT_ID){
+        if (child.entityId === ''){
             throw Error("Cannot add a child with empty entity id. This is reserved for the super-root");
         }
 
         this.children[child.entityId] = child;
         this.childrenSorted.push(child);
-        this.childrenSortOutdated = true;
+        this.setChildrenSortOutdated();
+        // this.sortChildren();
     }
     removeChild(child: HashTreeNode) {
         delete this.children[child.entityId];
@@ -86,7 +154,7 @@ export class HashTreeNode {
             throw Error("Child not found");
         }
         this.childrenSorted.splice(index, 1);
-        this.childrenSortOutdated = true;
+        this.setChildrenSortOutdated(); // not needed if sort is on every insert
     }
     safeForSubtreeRemoval(): boolean {
         if (this.removed && this.childrenSorted.length === 0) {
@@ -99,47 +167,99 @@ export class HashTreeNode {
         }
         return true;
     }
+    async updateHash() {
+        if (this.removed) {
+            throw Error("Cannot update hash of a removed node");
+        }
+
+        if (this.childrenSortOutdated) {
+            throw Error("Cannot update hash: children not sorted");
+        }
+
+        // Check for any removed children - they should have been cleaned up
+        // And update hashes for all children
+        for (let child of this.childrenSorted) {
+            if (child.removed) {
+                throw Error("Cannot update hash: child node marked for removal must be cleaned up first");
+            }
+            if (child.hashOutdated) {
+                await child.updateHash();
+            }
+        }
+
+        const childHashes = this.childrenSorted.map((child) => child.hash);
+        this._hash = await hash(this.entityDataHash, childHashes);
+        this._hashOutdated = false;
+        this.hash
+    }
 }
 
 export class HashTree {
     private _tmpSubtrees: { [key: string]: HashTreeNode[] } = {}; // by parent id
-    root: HashTreeNode | null = null;
+    superRoot: HashTreeNode | null = null;
     nodes: { [key: string]: HashTreeNode } = {} // by entity id
-    cleanupNeeded: boolean = false; // Handle nodes marked for removal and assert no tmp subtrees
+    _removedNodeCleanupNeeded: boolean = false; // Handle nodes marked for removal
 
-    setHashOutdated(node: HashTreeNode) {
-        log.info('Setting hash outdated', node.entityId)
+    constructor() {
+        this.createSuperRoot();
+    }
 
-        if (node.hashOutdated) {
-            return;
+    get removedNodeCleanupNeeded(): boolean {
+        return this._removedNodeCleanupNeeded;
+    }
+    cleanUpRemovedNodesLater() {
+        this._removedNodeCleanupNeeded = true;
+    }
+
+    createSuperRoot() {
+        if (!!this.superRoot) {
+            throw Error("Cannot have multiple super-root nodes");
         }
-        node.setHashOutdated();  // Set for the node itself
+        let superRoot = new HashTreeNode(this, '', '', '', NodeType.SUPER_ROOT);
+        this.insertNode(superRoot);
+    }
 
-        // Set for all parents
-        let parent = this.nodes[node.parentId];
-        if (parent) {
-            this.setHashOutdated(parent);
+    createRoot(entityId: string, entityDataHash: string) {
+        if (entityId === '') {
+            throw Error("Root nodes must have an entity id");
         }
+        let root = new HashTreeNode(this, entityId, '', entityDataHash, NodeType.ROOT);
+        this.insertNode(root);
+        return root;
+    }
+
+    createNonRoot(entityId: string, parentId: string, entityDataHash: string) {
+        if (parentId === '') {
+            throw Error("Non-root nodes must have a parent id");
+        }
+        if (entityId === '') {
+            throw Error("Non-root nodes must have an entity id");
+        }
+        let nonRoot = new HashTreeNode(this, entityId, parentId, entityDataHash, NodeType.NON_ROOT);
+        this.insertNode(nonRoot);
+        return nonRoot;
     }
 
     insertNode(node: HashTreeNode) {
-        // log.info('Inserting node', node.entityId, node.parentId)
+        if (this.nodes[node.entityId]) {
+            throw Error("Node with this entity id already exists");
+        }
+
         let parent = this.nodes[node.parentId];
 
-        if (node.entityId === SUPER_ROOT_ID) { // For adding the super-root
-            if (!!this.root){
+        if (node.type === NodeType.SUPER_ROOT) { // For adding the super-root
+            if (!!this.superRoot){
                 throw Error("Cannot have multiple super-root nodes");
             }
             if (parent) {
                 throw Error("Wtf. Super-root node cannot have a parent");
             }
-            this.root = node;
+            this.superRoot = node;
             this.nodes[node.entityId] = node;
 
         // Else if the parent is not in the tree, add it to the temporary subtrees
         } else if (!parent) {
             log.info('Parent not found, adding to tmp subtrees', node.parentId)
-            this.cleanupNeeded = true; // To check for hanging tmp subtrees later
             if (!this._tmpSubtrees[node.parentId]) {  // Create list if not already present
                 this._tmpSubtrees[node.parentId] = [];
             }
@@ -166,15 +286,15 @@ export class HashTree {
     }
     removeNode(node: HashTreeNode) {
         log.info('Marking node for removal', node.entityId)
-        node.removed = true;
-        this.cleanupNeeded = true;
+        node.markAsRemoved();
+        this.cleanUpRemovedNodesLater();
     }
     parent(node: HashTreeNode): HashTreeNode | null {
         return this.nodes[node.parentId] || null;
     }
 
-    cleanUp() {
-        /** Remove nodes marked for removal and assert no hanging tmp subtrees */
+    deleteNodesMarkedForRemoval() {
+        /** Remove nodes marked for removal */
         log.info('Cleaning up hash tree')
         // Remove nodes marked for removal. First detach from parents, then delete
         let forDeletion: HashTreeNode[] = [];
@@ -200,123 +320,123 @@ export class HashTree {
             delete this.nodes[node.entityId];
         }
 
-        // Assert no tmp subtrees
-        if (Object.keys(this._tmpSubtrees).length > 0) {
-            throw Error("Temporary subtrees not empty");
-        }
-
-        this.cleanupNeeded = false;
+        this._removedNodeCleanupNeeded = false;
     }
 
-    async updateHash() {
-        if (!this.root) {
+    async updateRootHash() {
+        if (!this.superRoot) {
             throw Error("Cannot update hash of an empty tree");
         }
 
-        if (this.cleanupNeeded) {
-            this.cleanUp();
+        if (this.removedNodeCleanupNeeded) {
+            this.deleteNodesMarkedForRemoval();
         }
 
-        await this.root.updateHash();
+        // Check for hanging subtrees
+        if (Object.keys(this._tmpSubtrees).length > 0) {
+            throw Error("Cannot update hash: hanging tmp subtrees");
+        }
+
+        // Sort children where needed
+        for (let node of Object.values(this.nodes)) {
+            if (node.childrenSortOutdated) {
+                node.sortChildren();
+            }
+        }
+
+        await this.superRoot.updateHash();
     }
 
     rootHash(): string {
-        if (!this.root) {
+        if (!this.superRoot) {
             throw Error("Cannot get hash of an empty tree");
         }
-        if (this.cleanupNeeded) {
+        if (this.removedNodeCleanupNeeded) {
             throw Error("Tree needs cleanup");
         }
-        if (this.root.hashOutdated) {
-            throw Error("Root hash is outdated");
+        if (this.superRoot.hashOutdated) {
+            throw Error("Super-root hash is outdated");
         }
-        return this.root.hash;
+        return this.superRoot.hash;
     }
 }
 
 
-async function hash(entityDataString: string, childHashes: string[] = []): Promise<string> {
+async function hash(data: string, dataForConcat: string[] = []): Promise<string> {
     // Concatenate (child hashes should be sorted by entityId)
-    let data = entityDataString + childHashes.join('');
+    let concatenatedData = data + dataForConcat.join('');
 
     const encoder = new TextEncoder();
-    const dataEncoded = encoder.encode(data);
-    let hashBuffer: ArrayBuffer = new ArrayBuffer(0);
-    // try{
-        hashBuffer = await subtleCrypto.digest("SHA-256", dataEncoded);
-    // } catch (e) {
-    //     log.info('Error hashing', e)
-    //     return 'error'
-    // }
+    const dataEncoded = encoder.encode(concatenatedData);
+    const hashBuffer: ArrayBuffer = await subtleCrypto.digest("SHA-256", dataEncoded);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     const hashHex = hashArray.map(byte => byte.toString(16).padStart(2, '0')).join('');
 
     return hashHex;
-    // return cryptoModule().createHash('sha256').update(data).digest('hex');
 }
 
+async function buildSubtree(store: Store, tree: HashTree, startNode: HashTreeNode) {
+    const children = Array.from(store.find({ parentId: startNode.entityId }));
+
+    // Add children
+    for (let child of children) {
+        const data = getEntityDataString(child);
+        let childNode = tree.createNonRoot(child.id, child.parentId, await hash(data));
+        await buildSubtree(store, tree, childNode)
+    }
+}
 
 export async function buildHashTree(store: Store): Promise<HashTree> {
-    let rootNode = new HashTreeNode('', '', '', true);
     let tree: HashTree = new HashTree();
 
-    async function buildSubtree(tree: HashTree, startNode: HashTreeNode) {
-        const children = Array.from(store.find({ parentId: startNode.entityId }));
-
-        // Add children
-        for (let child of children) {
-            let data = JSON.stringify(dumpToDict(child));
-            let childNode: HashTreeNode = new HashTreeNode(child.id, child.parentId, await hash(data));
-            tree.insertNode(childNode);
-            buildSubtree(tree, childNode)
-        }
+    // For every root node - add it, and build its subtree
+    let rootEntities = Array.from(store.find({ parentId: '' }));
+    for (let rootEntity of rootEntities) {
+        const data = getEntityDataString(rootEntity);
+        let rootNode = tree.createRoot(rootEntity.id, await hash(data));
+        await buildSubtree(store, tree, rootNode)
     }
-
-    // Build the subtrees for all entities with no parent
-    tree.insertNode(rootNode);
-    await buildSubtree(tree, rootNode)
-    await tree.updateHash();
+    await tree.updateRootHash();
     return tree
 }
 
-export async function updateHashTree(tree: HashTree, store: Store, changes: Change[]) {
+export async function updateHashTree(tree: HashTree, store: Store, delta: Delta) {
     // For deletions - remove the node
-    let changedEntitiesIds = new Map<string, boolean>();
-    for (let change of changes) {
-        let changeType = change.changeType();
-        let entity = change.lastState;
+    for (let change of delta.changes()) {
+        let changeType = change.type();
+        let entity = store.findOne({ id: change.entityId });
 
-        // The function expects aggregated changes
-        if (changedEntitiesIds.has(entity.id)) {
-            throw Error("Multiple changes for the same entity id");
-        }
-
-        if (changeType === ChangeTypes.DELETE) {
-            let node = tree.nodes[entity.id];
-            if (node) {
-                tree.removeNode(node);
-            } else {
-                throw Error("Entity not found in the hash tree");
+        if (changeType === ChangeType.DELETE) {
+            let node = tree.nodes[change.entityId];
+            if (!node) {
+                throw Error("Cannot delete a node that doesn't exist");
             }
+            tree.removeNode(node);
 
-        } else if (changeType === ChangeTypes.UPDATE) {
-            let node = tree.nodes[entity.id];
-            if (node) {
-                let data = JSON.stringify(dumpToDict(entity));
-                node.entityDataHash = await hash(data);
-                tree.setHashOutdated(node);
-            } else {
-                throw Error("Entity not found in the hash tree");
+        } else if (changeType === ChangeType.UPDATE) {
+            let node = tree.nodes[change.entityId];
+            if (!node){
+                throw Error("Cannot update a node that doesn't exist");
             }
+            if (entity === undefined) {
+                throw Error("Entity not found for the given change");
+            }
+            const data = getEntityDataString(entity);
+            node.entityDataHash = await hash(data);
+            node.setHashOutdated();
 
-        } else if (changeType === ChangeTypes.CREATE) {
-            let data = JSON.stringify(dumpToDict(entity));
+        } else if (changeType === ChangeType.CREATE) {
+            if (entity === undefined) {
+                throw Error("Entity not found for the given change");
+            }
+            const data = getEntityDataString(entity);
             let hashString = await hash(data);
-            let node = new HashTreeNode(entity.id, entity.parentId, hashString);
+            let nodeType = entity.parentId === '' ? NodeType.ROOT : NodeType.NON_ROOT;
+            let node = new HashTreeNode(tree, change.entityId, entity.parentId, hashString, nodeType);
             tree.insertNode(node);
         } else {
             throw Error("Unexpected change type");
         }
     }
-    await tree.updateHash();
+    await tree.updateRootHash();
 }

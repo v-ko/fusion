@@ -1,223 +1,92 @@
-import { Entity, EntityData, SerializedEntityData, dumpToDict, loadFromDict } from "./libs/Entity"
-// import { currentTime, createId, timestamp } from "./util"
+import { Entity, EntityData, SerializedEntityData, dumpToDict } from "./libs/Entity"
 
-export enum ChangeTypes {
+export type ChangeComponent = Partial<SerializedEntityData>;
+
+export enum ChangeType {
     EMPTY = 0,
     CREATE = 1,
     UPDATE = 2,
     DELETE = 3
 }
 
-interface ChangeData {
-    // id: string
-    old_state?: Entity<EntityData>
-    new_state?: Entity<EntityData>
-    // timestamp: string;
-}
-
-export interface SerializedChangeData {
-    // id: string
-    old_state?: SerializedEntityData
-    new_state?: SerializedEntityData
-    delta?: Partial<EntityData>
-    // timestamp: string;
-}
+export type ChangeData = [
+    string, // entity id
+    Record<string, any>, // reverse change component
+    Record<string, any> // forward change component (apply to get new state)
+];
 
 export class Change {
-    // public id: string
-    public old_state?: Entity<EntityData>
-    public new_state?: Entity<EntityData>
-    // public timestamp: string
+    private _data: ChangeData
 
     constructor(data: ChangeData) {
-        // this.id = data.id
-        this.old_state = data.old_state
-        this.new_state = data.new_state
-        // this.timestamp = data.timestamp
+        this._data = data
     }
 
-    static new(old_state?: Entity<EntityData>, new_state?: Entity<EntityData>): Change {
-        let change = new Change({
-            // id: createId(),
-            old_state: old_state,
-            new_state: new_state,
-            // timestamp: timestamp(currentTime())
-        })
-
-        return change;
+    get data(): ChangeData {
+        return this._data
     }
 
-    // get time(): Date {
-    //     return new Date(this.timestamp)
-    // }
+    get entityId(): string {
+        return this._data[0]
+    }
 
-    changeType() {
-        if (this.old_state && this.new_state) {
-            return ChangeTypes.UPDATE
-        } else if (this.old_state) {
-            return ChangeTypes.DELETE
-        } else if (this.new_state) {
-            return ChangeTypes.CREATE
+    get reverseComponent(): ChangeComponent {
+        return this._data[1]
+    }
+    set reverseComponent(value: ChangeComponent) {
+        this._data[1] = value
+    }
+
+    get forwardComponent(): ChangeComponent {
+        return this._data[2]
+    }
+    set forwardComponent(value: ChangeComponent) {
+        this._data[2] = value
+    }
+
+    type() {
+        const hasReverse = Object.keys(this.reverseComponent).length > 0
+        const hasForward = Object.keys(this.forwardComponent).length > 0
+        if (hasReverse && hasForward) {
+            return ChangeType.UPDATE
+        } else if (hasReverse) {
+            return ChangeType.DELETE
+        } else if (hasForward) {
+            return ChangeType.CREATE
         } else {
-            return ChangeTypes.EMPTY
+            return ChangeType.EMPTY
         }
-    }
-
-    // def asdict(self) -> dict:
-    //     if self.old_state:
-    //         old_state = dump_to_dict(self.old_state)
-    //     else:
-    //         old_state = None
-
-    //     if self.new_state:
-    //         new_state = dump_to_dict(self.new_state)
-    //     else:
-    //         new_state = None
-
-    //     return dict(old_state=old_state,
-    //                 new_state=new_state,
-    //                 id=self.id,
-    //                 timestamp=timestamp(self.time, microseconds=True))
-
-    asdict(): SerializedChangeData {
-        let oldState: SerializedEntityData | undefined
-        let newState: SerializedEntityData | undefined
-
-        if (this.old_state) {
-            oldState = dumpToDict(this.old_state)
-        }
-        if (this.new_state) {
-            newState = dumpToDict(this.new_state)
-        }
-
-        return {
-            old_state: oldState,
-            new_state: newState,
-            // id: this.id,
-            // timestamp: timestamp(this.time, true)
-        }
-    }
-
-    static fromSafeDict(serializedChange: SerializedChangeData): Change {
-        let changeData: ChangeData = {
-            // id: serializedChange.id,
-            // timestamp: serializedChange.timestamp
-        }
-        let old_state_dict = serializedChange.old_state
-        let new_state_dict = serializedChange.new_state as Record<string, any>
-
-        // Get the delta and use it to generate the new_state
-        let delta = serializedChange.delta as Record<string, any>
-        if (delta !== undefined) {
-            if (!old_state_dict) {
-                throw new Error("Cannot apply delta to empty state")
-            }
-            new_state_dict = { ...old_state_dict };
-
-            for (let key in delta.keys()) {
-                if (delta[key] !== undefined) {
-                    new_state_dict[key] = delta[key];
-                }
-            }
-        }
-
-        if (old_state_dict) {
-            changeData.old_state = loadFromDict(old_state_dict)
-        }
-        if (new_state_dict) {
-            changeData.new_state = loadFromDict(new_state_dict as SerializedEntityData)
-        }
-
-        return new Change(changeData)
-    }
-
-    forwardDelta(): Partial<EntityData> {
-        let delta_dict: Record<string, any> = {}
-        let old_state = this.old_state as Record<string, any>
-        let new_state = this.new_state as Record<string, any>
-
-        if (old_state === undefined || new_state === undefined) {
-            throw new Error("Cannot get delta from empty state")
-        }
-
-        for (let key in old_state) {
-            let old_val = old_state[key]
-            let new_val = new_state[key]
-
-            if (old_val !== new_val) {
-                delta_dict[key] = new_val
-            }
-        }
-
-        return delta_dict
-    }
-
-    asSafeDict(): SerializedChangeData {
-        // deprecated
-        let changeDict = this.asdict()
-
-        if (this.isUpdate()) {
-            changeDict.delta = this.forwardDelta()
-            delete changeDict.new_state
-        }
-
-        return changeDict
     }
 
     static create(entity: Entity<EntityData>): Change {
-        return Change.new(undefined, entity)
+        return new Change([entity.id, {}, dumpToDict(entity)])
     }
 
     static delete(entity: Entity<EntityData>): Change {
-        return Change.new(entity, undefined)
+        return new Change([entity.id, dumpToDict(entity), {}])
     }
 
-    static update(old_state: Entity<EntityData>, new_state: Entity<EntityData>): Change {
-        return Change.new(old_state, new_state)
-    }
-
-    isCreate(): boolean {
-        return this.changeType() === ChangeTypes.CREATE
-    }
-
-    isDelete(): boolean {
-        return this.changeType() === ChangeTypes.DELETE
-    }
-
-    isUpdate(): boolean {
-        return this.changeType() === ChangeTypes.UPDATE
-    }
-
-    isEmpty(): boolean {
-        return this.changeType() === ChangeTypes.EMPTY
-    }
-
-    get lastState(): Entity<EntityData> {
-        /**
-         * Return the latest available state.
-         */
-        if (this.new_state !== undefined) {
-            return this.new_state
-        } else if (this.old_state !== undefined) {
-            return this.old_state
-        } else {
-            throw new Error("Cannot get last state from empty change")
-        }
+    static update(oldState: Entity<EntityData>, newState: Entity<EntityData>): Change {
+        return oldState.changeFrom(newState)
     }
 
     reversed(): Change {
-        /**
-         * Return a reversed change.
-         */
-        if (this.isCreate()) {
-            return Change.delete(this.new_state!)
-        } else if (this.isDelete()) {
-            return Change.create(this.old_state!)
-        } else if (this.isUpdate()) {
-            return Change.update(this.new_state!, this.old_state!)
-        } else {
-            // raise exeption
-            throw new Error("Cannot reverse empty change")
-        }
+        return new Change([this.entityId, this.forwardComponent, this.reverseComponent])
+    }
+
+    isCreate(): boolean {
+        return this.type() === ChangeType.CREATE
+    }
+
+    isDelete(): boolean {
+        return this.type() === ChangeType.DELETE
+    }
+
+    isUpdate(): boolean {
+        return this.type() === ChangeType.UPDATE
+    }
+
+    isEmpty(): boolean {
+        return this.type() === ChangeType.EMPTY
     }
 }

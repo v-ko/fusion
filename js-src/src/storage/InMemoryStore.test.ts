@@ -1,5 +1,5 @@
 import { Entity, EntityData, entityType } from "../libs/Entity";
-import { changesFromDelta, deltaFromChanges } from "./BaseStore";
+import { Delta } from "./Delta";
 import { InMemoryStore as InMemoryStore } from "./InMemoryStore";
 
 interface PageData extends EntityData {
@@ -138,15 +138,20 @@ describe("InMemoryStore", () => {
         let repoNote2 = repo.findOne({ id: "789" });
         expect((repoNote2 as Note)._data.name).toBe("Test Note 2");
 
-        let changeUpdate = repo.updateOne(note2);
-        changes.push(changeUpdate);
+        let delta = Delta.fromChanges(changes);
 
         let changeDelete = repo.removeOne(note1);
         changes.push(changeDelete);
 
-        let delta = deltaFromChanges(changes);
+        delta = Delta.fromChanges(changes);
 
-        let reverseChanges = changesFromDelta(repo, delta.reversed());
+        let changeUpdate = repo.updateOne(note2);
+        changes.push(changeUpdate);
+
+        delta = Delta.fromChanges(changes);
+        delta = delta.reversed()
+
+        let reverseChanges = delta.changes();
         for (let change of reverseChanges) {
             repo.applyChange(change);
         }

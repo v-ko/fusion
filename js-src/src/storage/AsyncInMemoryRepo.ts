@@ -3,7 +3,7 @@ import { HashTree, buildHashTree, updateHashTree } from "./HashTree";
 import { createId } from "../util";
 import { CommitGraph } from "./CommitGraph";
 import { InMemoryStore } from "./InMemoryStore";
-import { BaseAsyncRepository, RepoUpdate, ResetFilter } from "./BaseRepository";
+import { BaseAsyncRepository, ResetFilter } from "./BaseRepository";
 import { Delta, DeltaData, squishDeltas } from "./Delta";
 import { getLogger } from "../logging";
 import { inferRepoChangesFromGraphUpdate } from "./SyncUtils";
@@ -80,16 +80,16 @@ export class AsyncInMemoryRepository extends BaseAsyncRepository {
     }
 
     async commit(delta: Delta, message: string): Promise<Commit> {
-        // log.info('Committing', delta, message)
+        log.info('Committing', delta, message)
         // Apply to the head store
-        let changes = this.headStore.applyDelta(delta)
+        this.headStore.applyDelta(delta)
 
         // Get snapshotHash
         try{
-        await updateHashTree(this.hashTree, this.headStore, changes)
+            await updateHashTree(this.hashTree, this.headStore, delta)
         } catch (e) {
             console.error('Error updating hash tree', e)
-            throw Error('Error updating hash tree' + e)
+            throw Error('Error updating hash tree: ' + e)
         }
         let snapshotHash = this.hashTree.rootHash()
 
@@ -118,6 +118,7 @@ export class AsyncInMemoryRepository extends BaseAsyncRepository {
     }
 
     async reset(filter: ResetFilter): Promise<void> {
+        // Update the head store state to reflect the requested branch/head pos
         let { relativeToHead } = filter
 
         if (relativeToHead === 0) {
@@ -152,8 +153,8 @@ export class AsyncInMemoryRepository extends BaseAsyncRepository {
         // commits in reverse
         let commits = branchCommits.slice(0, targetIndex + 1)
         let deltas = commits.map((commit) => commit.deltaData)
-        let squishedDelta = squishDeltas(deltas as DeltaData[])
-        let changes = this.headStore.applyDelta(squishedDelta.reversed())
+        let squishedDelta = squishDeltas(deltas as DeltaData[]).reversed()
+        this.headStore.applyDelta(squishedDelta)
 
         // Remove from commit graph and local commits
         let removedCommits = branchCommits.slice(targetIndex + 1)
@@ -163,13 +164,13 @@ export class AsyncInMemoryRepository extends BaseAsyncRepository {
         })
 
         // Update hash tree
-        await updateHashTree(this.hashTree, this.headStore, changes)
+        await updateHashTree(this.hashTree, this.headStore, squishedDelta)
         this.commitGraph.setBranch(currentBranch, targetCommit.id)
 
         // Assert that the hash is correct
         let snapshotHash = this.hashTree.rootHash()
         if (snapshotHash !== targetCommit.snapshotHash) {
-            throw new Error("Snapshot hash mismatch")
+            throw new Error("Snapshot hash of the head store state does not match the one of the applied commit (on reset)")
         }
     }
 
@@ -249,14 +250,15 @@ export class AsyncInMemoryRepository extends BaseAsyncRepository {
         }
 
         let squishedDelta = squishDeltas(deltas as DeltaData[])
-        let changes = this.headStore.applyDelta(squishedDelta)
+        this.headStore.applyDelta(squishedDelta)
 
         // Update the hash tree
-        await updateHashTree(this.hashTree, this.headStore, changes)
+        await updateHashTree(this.hashTree, this.headStore, squishedDelta)
 
         // Assert hash is correct
         let snapshotHash = this.hashTree.rootHash()
         if (snapshotHash !== remoteHeadCommit!.snapshotHash) {
+            console.log(remoteHeadCommit, this.hashTree)
             throw new Error("Snapshot hash mismatch")
         }
         log.info('[_checkAndApplyUpdate] Updated hash tree', snapshotHash)

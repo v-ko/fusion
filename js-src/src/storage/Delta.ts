@@ -1,345 +1,262 @@
-import { Change, ChangeTypes } from "../Change";
-import { SerializedEntityData, dumpToDict, entityKeysAreEqual } from "../libs/Entity";
+import { Change, ChangeData, ChangeType } from "../Change";
 import { getLogger } from "../logging";
 
 let log = getLogger('Delta')
 
-export type EntityDeltaComponent = Partial<SerializedEntityData>
-
-export type EntityDeltaData = [
-    string, // entity id
-    EntityDeltaComponent, // old state delta (reverse delta component)
-    EntityDeltaComponent // new state delta (forward delta component)
-]
-
-export type DeltaData = EntityDeltaData[] // Ordered by change sequence
+export type DeltaData = {
+    [key: string]: ChangeData;
+}
 
 export class Delta {
     // Max entity key depth: e.g. entity.content.image.height - 3 levels
     // 1 property scope, 2 property object, 3 key
-    private _data: DeltaData = [];
-    private _byId: Map<string, EntityDeltaData> = new Map();
+    private _data: DeltaData = {};
 
     constructor(data: DeltaData) {
         this._data = data;
+    }
 
-        // Index by entity id
-        for (let entityDelta of data) {
-            this._byId.set(entityDelta[0], entityDelta)
+    static fromChanges(changes: Change[]): Delta {
+        let delta = new Delta({});
+        for (const change of changes) {
+            delta.addChangeFromData(change.data)
         }
+        return delta;
     }
 
     get data(): DeltaData {
         return this._data;
     }
 
+    setData(data: DeltaData) {
+        this._data = data;
+    }
+
+    *changes(): Generator<Change> {
+        for (const changeData of Object.values(this._data)) {
+            yield new Change(changeData);
+        }
+    }
+
     copy() {
-        return new Delta(structuredClone(this._data))
+        return new Delta(structuredClone(this._data));
     }
 
     reversed(): Delta {
-        let reversedData: DeltaData = []
-        for (let [entityId, forward, reverse] of this._data.slice().reverse()) {
-            reversedData.push([entityId, reverse, forward])
+        // Makes the changes in place
+        const reversedData: DeltaData = {};
+        for (const [entityId, reverseComponent, forwardComponent] of Object.values(this._data)) {
+            reversedData[entityId] = [entityId, forwardComponent, reverseComponent];
         }
-
-        return new Delta(reversedData)
+        return new Delta(reversedData);
     }
 
-    addEntityDelta(entityDelta: EntityDeltaData) {
-        if (this._byId.get(entityDelta[0]) !== undefined) {
-            throw Error('Entity delta with that key already present')
+    addChangeFromData(changeData: ChangeData) {
+        const [entityId] = changeData;
+        if (this._data[entityId] !== undefined) {
+            // Merge the changes
+            this.mergeChangeWithPriority(new Change(changeData));
+        } else {
+            this._data[entityId] = changeData;
         }
-
-        this._data.push(entityDelta)
-        this._byId.set(entityDelta[0], entityDelta)
     }
 
-    removeEntityDelta(entityId: string) {
-        let entityDelta = this._byId.get(entityId)
-        if (entityDelta === undefined) {
-            throw Error('Entity delta with that key not found')
+    removeChange(entityId: string) {
+        if (this._data[entityId] === undefined) {
+            throw Error('Entity delta with that key not found');
         }
-
-        this._data = this._data.filter((ed) => ed[0] !== entityId)
-        this._byId.delete(entityId)
+        delete this._data[entityId];
     }
 
     isEmpty(): boolean {
-        let empty = true
-        for (let entityDelta of Object.values(this._data)) {
-            if (entityDelta[1] || entityDelta[2]) {
-                empty = false
-                break
+        for (const [_, oldState, newState] of Object.values(this._data)) {
+            if (Object.keys(oldState).length > 0 || Object.keys(newState).length > 0) {
+                return false;
             }
         }
-        return empty
+        return true;
     }
 
     entityIds(): string[] {
-        return Array.from(this._byId.keys())
+        return Object.keys(this._data);
     }
 
-    entityDelta(entityId: string): EntityDeltaData | undefined {
-        // Is expected to be mutable in some places
-        return this._byId.get(entityId)
+    changeData(entityId: string): ChangeData | undefined {
+        return this._data[entityId];
     }
 
-    mergeEntityDelta(entityDelta: EntityDeltaData) {
+    change(entityId: string): Change | undefined{
+        const changeData = this.changeData(entityId);
+        if (changeData === undefined) {
+            return undefined;
+        }
+        return new Change(changeData);
+    }
+    mergeChangeWithPriority(change: Change) {
         /**
-         * Merges an entity delta into this delta as if it was applied after it.
-         * - Create > Update: Merge update into Create delta
-         * - Update > Update: Merge both forward and reverse components
-         * - Delete > Create: Remove Delete, readd as Create
-         * - Create > Delete: Remove Create, don't add Delete
-         * Detect irrational change sequences:
-         * - Create > Create, Delete > Delete, Update > Create, Delete > Update
+         * Merges a new change (second/next) into the existing delta (first)
+         * for a specific entity, as if it was applied afterward.
          *
-         * It's not the most efficient implementation, but given that we should
-         * keep change order, that collisions are rare and that the number of
-         * entities is expected to be small - it's fine...?
+         * This function enforces a priority or ordering, meaning
+         * "the second/next change overrides or merges into the first."
+         *
+         * Supported patterns for merging:
+         *  1) Update > Update   : Combine forward/reverse fields
+         *  2) Create > Update   : Extend the 'create' forward component
+         *  3) Delete > Create   : Treat as an 'update' (old data => new data)
+         *  4) Create > Delete   : The creation is effectively canceled
+         *  5) Otherwise         : Log as an error or do nothing
+         *
+         * Notes:
+         *  - 'forwardComponent' describes how to go from the "old" to "new" state.
+         *  - 'reverseComponent' describes how to go back from the "new" to "old" state.
          */
-        // Get entity delta from this delta
-        let firstEntityDelta = this.entityDelta(entityDelta[0])
+        const firstChange = this.change(change.entityId);
 
-        // If there's no present delta: just merge it
-        if (firstEntityDelta === undefined) {
-            this.addEntityDelta(entityDelta)
-            return
+        // If no existing (first) change for this entity, just add the new one
+        if (!firstChange) {
+            this.addChangeFromData(change.data);
+            return;
         }
 
-        // Infer change type for both
-        let firstCT = entityDeltaChangeType(firstEntityDelta)
-        let nextCT = entityDeltaChangeType(entityDelta)
+        // Identify what kind of changes we're merging:
+        const firstCT = firstChange.type();  // e.g. CREATE, UPDATE, DELETE
+        const nextCT = change.type();        // the new change being merged in
 
-        // Else if Update > Update
-        if (firstCT === ChangeTypes.UPDATE && nextCT === ChangeTypes.UPDATE) {
-            let firstForward = firstEntityDelta[2]
-            let firstReverse = firstEntityDelta[1]
-            let nextForward = entityDelta[2]
-            let nextReverse = entityDelta[1]
+        /**
+         * 1) UPDATE > UPDATE
+         *    We combine the forward components to reflect the sum of both updates,
+         *    and merge reverse components to preserve the ability to revert back
+         *    to the earliest "old" state if necessary.
+         */
+        if (firstCT === ChangeType.UPDATE && nextCT === ChangeType.UPDATE) {
+            const firstForward = { ...firstChange.forwardComponent };
+            const firstReverse = { ...firstChange.reverseComponent };
+            const nextForward = change.forwardComponent;
+            const nextReverse = change.reverseComponent;
 
-            // Merge forward
+            // Forward props: new update fields appended on top
             if (nextForward) {
-                firstForward = { ...firstForward, ...nextForward }
+                firstChange.forwardComponent = { ...firstForward, ...nextForward };
             }
-            // Merge reverse
+            // Reverse props: nextReverse overrides firstReverse to revert properly
             if (nextReverse) {
-                firstReverse = { ...nextReverse, ...firstReverse }
+                firstChange.reverseComponent = { ...nextReverse, ...firstReverse };
             }
 
-            // Else if Create > Update
-        } else if (firstCT === ChangeTypes.CREATE && nextCT === ChangeTypes.UPDATE) {
-            let firstForward = firstEntityDelta[2]
-            let nextForward = entityDelta[2]
-
-            // Merge forward
-            if (nextForward) {
-                firstEntityDelta[2] = { ...firstForward, ...nextForward }
+        /**
+         * 2) CREATE > UPDATE
+         *    We interpret the second update as simply extending the forward part
+         *    of the original CREATE. Because the entity was just created, we can
+         *    "stack" these updates into its forward component.
+         */
+        } else if (firstCT === ChangeType.CREATE && nextCT === ChangeType.UPDATE) {
+            if (change.forwardComponent) {
+                firstChange.forwardComponent = {
+                    ...firstChange.forwardComponent,
+                    ...change.forwardComponent
+                };
             }
-            // Disregard the rest of the other/next delta
 
-            // Else if Delete > Create
-        } else if (firstCT === ChangeTypes.DELETE && nextCT === ChangeTypes.CREATE) {
-            this.removeEntityDelta(entityDelta[0])
-            this.addEntityDelta(entityDelta)
+        /**
+         * 3) DELETE > CREATE
+         *    The "delete" said "this entity used to exist, now it doesn't."
+         *    The "create" says "here's a new version of the entity."
+         *    Interpreting them together means we effectively have an 'update' from
+         *    the old data to the newly created data (old => new).
+         */
+        } else if (firstCT === ChangeType.DELETE && nextCT === ChangeType.CREATE) {
+            const oldData = firstChange.reverseComponent;  // Pre-delete data
+            const newData = change.forwardComponent;       // Newly created data
+            this._data[change.entityId] = [
+                change.entityId,
+                oldData,    // reverse => revert to "deleted" or old state
+                newData     // forward => adopt the new data
+            ];
 
-            // Else if Create > Delete
-        } else if (firstCT === ChangeTypes.CREATE && nextCT === ChangeTypes.DELETE) {
-            this.removeEntityDelta(entityDelta[0])
+        /**
+         * 4) CREATE > DELETE
+         *    Means we created an entity and are now deleting it before any usage.
+         *    Net effect = remove both changes; there's no entity at all.
+         */
+        } else if (firstCT === ChangeType.CREATE && nextCT === ChangeType.DELETE) {
+            this.removeChange(change.entityId);
 
-        } else if (nextCT === ChangeTypes.EMPTY) {
-            // Nothing to do
-
-        } else {  // Else if irrational sequence
-            log.error('Irrational delta sequence detected when merging delta', entityDelta, 'into', this)
+        /**
+         * 5) EMPTY or unhandled
+         *    If the new change is empty, do nothing; if it's an irrational
+         *    sequence (like 'Update > Create' on an entity that didn't exist),
+         *    log an error.
+         */
+        } else if (nextCT === ChangeType.EMPTY) {
+            // Nothing to do for empty changes
+        } else {
+            log.error(
+                'Irrational or unhandled delta sequence:',
+                firstChange,
+                '->',
+                change
+            );
         }
+
+        // Log the final outcome for diagnostic purposes
+        log.info('Merged change:', JSON.stringify(this.change(change.entityId)));
     }
 
-    // equals(other: Delta): boolean {
-    //     let thisData = this.data()
-    //     let otherData = other.data()
-
-    //     if (Object.keys(thisData).length !== Object.keys(otherData).length){
-    //         return false
-    //     }
-
-    //     function areEqual(a: Partial<EntityData>, b: Partial<EntityData>): boolean {
-    //         // 3-lvl check
-    //         for (let key in (a as any)) {
-    //             if (!(b as any)[key]){
-    //                 return false
-    //             }
-    //             for (let subKey in (a as any)[key]) {
-    //                 if (!(b as any)[key][subKey]){
-    //                     return false
-    //                 }
-    //                 if ((a as any)[key][subKey] !== (b as any)[key][subKey]){
-    //                     return false
-    //                 }
-    //             }
-    //         }
-    //         return true
-    //     }
-
-    //     for (let entityId in thisData) {
-    //         if (!otherData[entityId]){
-    //             return false
-    //         }
-    //         if (!areEqual(thisData[entityId], otherData[entityId])){
-    //             return false
-    //         }
-    //     }
-
-    //     return true
-    // }
-
-    changeType(entityId: string, reverse: boolean = false): ChangeTypes {
-        const entityDelta = this.entityDelta(entityId)
-        if (!entityDelta) {
-            throw Error('No entity delta for the given entityId')
+    changeType(entityId: string, reverse: boolean = false): ChangeType {
+        let change = this.change(entityId);
+        if (!change) {
+            throw Error('No entity delta for the given entityId');
         }
-        return entityDeltaChangeType(entityDelta, reverse)
+        if (reverse) {
+            change = change.reversed();
+        }
+        return change.type();
     }
 
-    mergeWith(next: Delta) { // In place
+    mergeWithPriority(next: Delta) { // In place
         /**
          * Union with another delta up to the level of entity.key. I.e. if
          * there's an update for an entity - if the updated key in both deltas
-         * is the same - the socond one ('other') will override the key in
+         * is the same - the second one ('other') will override the key in
          * the forward operation. And the first one (this) will override in
          * the backward direction
          */
-
-        //     // Get a union of all entity deltas in both deltas
-        //     let entityIds = new Set([...this.entityIds(), ...next.entityIds()])
-
-        //     for (let entityId of entityIds) {
-        //         // Where not present in either delta: just keep
-
-        //         // Where changes are present in both deltas for an entity:
-        //         // Merge by replacing in both the forward and reverse components
-        //         // (in the appropriate direction) while dropping empty changes and
-        //         // checking for irrational sequnces
-
-        //         let entityDeltaThis = this.entityDelta(entityId)
-        //         let entityDeltaNext = next.entityDelta(entityId)
-        //         let thisECT = this.changeType(entityId)
-        //         let otherECT = this.changeType(entityId)
-
-
-        //         // Add any changes for entity ids missing in this delta
-        //         //(no conflicts are possible)
-        //         if (!entityDeltaThis) {
-        //             this._data[entityId] = structuredClone(entityDeltaNext!)
-        //             continue
-
-        //         } else if (!entityDeltaNext) { // Nothing to do
-        //             continue
-        //         }
-
-        //         // Else we have merge, check for consistency and clean
-
-        //         // Consistency checks - no empty changes are expected and
-        //         // create>create, delete>delete, delete>update, update>create
-        //         // are not rational. Checking in one direction is enough
-        //         if (thisECT === ChangeTypes.EMPTY || otherECT === ChangeTypes.EMPTY) {
-        //             throw Error('Empty delta found on delta merge for entityId ' + entityId)
-        //         }
-        //         if (thisECT === ChangeTypes.DELETE && otherECT !== ChangeTypes.CREATE) {
-        //             throw Error('Irrational delta sequence DELETE -> !CREATE')
-        //         }
-        //         if (otherECT === ChangeTypes.CREATE && thisECT !== ChangeTypes.DELETE) {
-        //             throw Error('Irrational delta sequence !DELETE -> CREATE')
-        //         }
-
-        //         // Merge
-        //         let thisForward = entityDeltaThis[0]
-        //         let thisReverse = entityDeltaThis[1]
-        //         let otherForward = entityDeltaNext[0]
-        //         let otherReverse = entityDeltaNext[1]
-
-        //         // Merge forward (with priority for the second delta)
-        //         if (otherForward) {
-        //             thisForward = { ...thisForward, ...structuredClone(otherForward) }
-        //         }
-        //         // Merge reverse (with priority for the first delta)
-        //         if (otherReverse) {
-        //             thisReverse = { ...structuredClone(otherReverse), ...thisReverse }
-        //         }
-
-        //         // Update the entity delta or remove if empty
-        //         if (thisForward || thisReverse) {
-        //             this._data[entityId] = [thisForward, thisReverse]
-        //         } else {
-        //             delete this._data[entityId]
-        //         }
-        //     }
-        // }
-
         // Iterate over all entity deltas in the next delta
-        for (let entityDelta of next.data) {
-            this.mergeEntityDelta(entityDelta)
+        for (const change of next.changes()) {
+            this.mergeChangeWithPriority(change);
         }
     }
 }
-
 
 export function squishDeltas(deltas: DeltaData[]) {
-    let squishedDelta = new Delta([])
+    const squishedDelta = new Delta({});
 
     for (let delta of deltas) {
-        squishedDelta.mergeWith(new Delta(delta))
+        squishedDelta.mergeWithPriority(new Delta(delta));
     }
 
-    return squishedDelta
+    return squishedDelta;
 }
 
-export function entityDeltaFromChange(change: Change): EntityDeltaData {
-    const lastState = change.lastState
-    const oldState: Record<string, any> = change.old_state ? dumpToDict(change.old_state) : {};
-    const newState: Record<string, any> = change.new_state ? dumpToDict(change.new_state) : {};
+function changeTypeFromData(
+    entityDelta: ChangeData,
+    reverse: boolean = false
+): ChangeType {
+    const [_, reverseDelta, forwardDelta] = entityDelta;
+    const [componentToCheck, otherComponent] = reverse ? [forwardDelta, reverseDelta] : [reverseDelta, forwardDelta];
 
-    const reverseDelta: Record<string, any> = {};
-    const forwardDelta: Record<string, any> = {};
-
-    const allKeys = new Set([...Object.keys(oldState), ...Object.keys(newState)]);
-    for (const key of allKeys) {
-        const oldVal = oldState[key];
-        const newVal = newState[key];
-
-        if (!entityKeysAreEqual(oldVal, newVal)) {
-            if (oldVal !== undefined) {
-                reverseDelta[key] = oldVal;
-            }
-            if (newVal !== undefined) {
-                forwardDelta[key] = newVal;
-            }
-        }
-    }
-
-    return [lastState.id, reverseDelta, forwardDelta]
-}
-
-
-function entityDeltaChangeType(entityDelta: EntityDeltaData, reverse: boolean = false): ChangeTypes {
-    let reverseComponentIndex = 1
-    let forwardComponentIndex = 2
-    if (reverse) {
-        reverseComponentIndex = 2
-        forwardComponentIndex = 1
-    }
-
-    let forwardPresent = Object.keys(entityDelta[forwardComponentIndex]).length > 0
-    let reversePresent = Object.keys(entityDelta[reverseComponentIndex]).length > 0
+    const forwardPresent = Object.keys(otherComponent).length > 0;
+    const reversePresent = Object.keys(componentToCheck).length > 0;
 
     if (forwardPresent && reversePresent) {
-        return ChangeTypes.UPDATE
+        return ChangeType.UPDATE;
     } else if (forwardPresent) {
-        return ChangeTypes.CREATE
+        return ChangeType.CREATE;
     } else if (reversePresent) {
-        return ChangeTypes.DELETE
+        return ChangeType.DELETE;
     } else {
-        return ChangeTypes.EMPTY
+        return ChangeType.EMPTY;
     }
 }
+

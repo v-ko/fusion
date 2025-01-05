@@ -1,6 +1,6 @@
 import { Change } from "../Change";
 import { Entity, EntityData, dumpToDict } from "../libs/Entity";
-import { SerializedStoreData, changesFromDelta } from "./BaseStore";
+import { SerializedStoreData } from "./BaseStore";
 import { Delta } from "./Delta";
 
 export abstract class BaseAsyncStore {

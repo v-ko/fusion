@@ -1,3 +1,4 @@
+import { Change, ChangeType } from "../Change";
 import { fusion } from "../index";
 import { getLogger } from "../logging";
 import { createId } from "../util";
@@ -30,7 +31,7 @@ export function entityType<T extends typeof Entity<S>, S extends EntityData>(nam
         throw new Error('Entity type name must be a string');
     }
 
-    return function(entity_class: T): T {
+    return function (entity_class: T): T {
         let entityClassName = name; // Use the explicitly provided name instead of inferring
         // log.info(`Registering entity class ${entityClassName}`);
         entityLibrary[entityClassName] = entity_class;
@@ -62,7 +63,7 @@ export function dumpToDict<T extends Entity<EntityData>>(entity: T): SerializedE
 
 
 export function loadFromDict<T extends SerializedEntityData>(entityDict: T): Entity<EntityData> {
-    const {type_name, ...entityData} = entityDict
+    const { type_name, ...entityData } = entityDict
     const cls = getEntityClassByName(type_name)
     let instance: any
 
@@ -77,7 +78,6 @@ export function loadFromDict<T extends SerializedEntityData>(entityDict: T): Ent
 // Entity definition
 export interface EntityData {
     id: string;  // Allows for composite ids
-    // parentId: string;
 }
 
 
@@ -86,20 +86,11 @@ export abstract class Entity<T extends EntityData> {
 
     constructor(data: T) {
         this._data = data;
-
-        // // Assign an id if it is not provided
-        // if (this._data.id === undefined) {
-        //     this._data.id = getEntityId()
-        // }
     }
 
     get id(): string {
         return this._data.id;
     }
-
-    // get parentId(): string {
-    //     return this._data.parentId;
-    // }
 
     abstract get parentId(): string;
     get parent_id(): string {
@@ -156,6 +147,53 @@ export abstract class Entity<T extends EntityData> {
         this.replace(newData);
 
         return leftovers;
+    }
+    changeFrom(other: Entity<EntityData>): Change {
+        /**
+         * Granularity: level 1 entity property. Read below!
+         * If a level1 key object (or its children) has changed
+         * (like entity.content.image.url) - the whole key is added to the delta
+         */
+        if (this.id !== other.id) {
+            throw new Error('Cannot create delta from different entities');
+        }
+        const oldState: Record<string, any> = dumpToDict(this);
+        const newState: Record<string, any> = dumpToDict(other);
+
+        const reverseDelta: Record<string, any> = {};
+        const forwardDelta: Record<string, any> = {};
+
+        const allKeys = new Set([...Object.keys(oldState), ...Object.keys(newState)]);
+        for (const key of allKeys) {
+            const oldVal = oldState[key];
+            const newVal = newState[key];
+
+            if (!entityKeysAreEqual(oldVal, newVal)) {
+                if (oldVal !== undefined) {
+                    reverseDelta[key] = oldVal;
+                }
+                if (newVal !== undefined) {
+                    forwardDelta[key] = newVal;
+                }
+            }
+        }
+
+        return new Change([this.id, reverseDelta, forwardDelta])
+    }
+    withAppliedChange(change: Change): Entity<EntityData> {
+        switch (change.type()) {
+            case ChangeType.UPDATE:
+                if (this.id !== change.entityId) {
+                    throw new Error('Cannot apply delta from different entities');
+                }
+                const forwardDelta = change.forwardComponent;
+                let newData = { ...dumpToDict(this), ...forwardDelta };
+                return loadFromDict(newData);
+            default:
+                throw new Error('Cannot apply non-update type change to an entity');
+
+        }
+
     }
 }
 
