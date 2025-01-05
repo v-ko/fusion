@@ -1,4 +1,4 @@
-import { Change, ChangeType } from "../Change";
+import { Change } from "../Change";
 import { Entity, EntityData, SerializedEntityData, dumpToDict, loadFromDict } from "../libs/Entity";
 import { Delta } from "./Delta";
 
@@ -37,11 +37,21 @@ export abstract class Store {
     }
     applyChange(change: Change): void {
         if (change.isCreate()) {
-            this.insertOne(lastEntityState(this, change));
+            let entityState = loadFromDict(change.forwardComponent as SerializedEntityData);
+            this.insertOne(entityState);
         } else if (change.isUpdate()) {
-            this.updateOne(lastEntityState(this, change));
+            let entity = this.findOne({ id: change.entityId });
+            if (entity === undefined) {
+                throw new Error(`Last state retreival error for ${change} (type update)`);
+            }
+            entity = entity.withAppliedChange(change);
+            this.updateOne(entity);
         } else if (change.isDelete()) {
-            this.removeOne(lastEntityState(this, change));
+            let entity = this.findOne({ id: change.entityId });
+            if (entity === undefined) {
+                throw new Error(`Last state retreival error for ${change} (type delete)`);
+            }
+            this.removeOne(entity);
         }
     }
     data(): SerializedStoreData {
@@ -61,35 +71,5 @@ export abstract class Store {
         for (const change of delta.changes()) {
             this.applyChange(change);
         }
-    }
-}
-
-export function lastEntityState(store: Store, change: Change): Entity<EntityData> {
-    let entity: Entity<EntityData> | undefined
-
-    switch (change.type()) {
-        case ChangeType.CREATE:
-            return loadFromDict(change.forwardComponent as SerializedEntityData);
-
-        case ChangeType.UPDATE:
-            entity = store.findOne({ id: change.entityId });
-            if (entity === undefined) {
-                throw new Error(`Last state retreival error for ${change} (type update)`);
-            }
-            return entity.withAppliedChange(change);
-
-        case ChangeType.DELETE:
-            entity = store.findOne({ id: change.entityId });
-            if (entity === undefined) {
-                throw new Error(`Last state retreival error for ${change} (type delete)`);
-            }
-            return entity;
-
-        case ChangeType.EMPTY:
-            throw new Error(`Cannot get last state from empty change`);
-
-        default:
-            throw new Error(`Unknown change type ${change.type()}`);
-
     }
 }
