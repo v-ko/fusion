@@ -1,5 +1,5 @@
 import { Commit } from "./Commit";
-import { BaseAsyncRepository, InternalRepoUpdate, RepoUpdate } from "./BaseRepository";
+import { BaseAsyncRepository, InternalRepoUpdate, RepoUpdateData } from "./BaseRepository";
 import { ChangeType } from "../Change";
 import { CommitGraph } from "./CommitGraph";
 
@@ -173,7 +173,7 @@ export async function autoMergeForSync(repo: BaseAsyncRepository, localBranchNam
                 refreshedCommits.push(commit)
             }
             commitGraph.setBranch(localBranchName, refreshedCommits.at(-1)!.id)
-            let localReaddUpdate: RepoUpdate = {
+            let localReaddUpdate: RepoUpdateData = {
                 commitGraph: commitGraph.data(),
                 newCommits: refreshedCommits.map(c => c.data())
             }

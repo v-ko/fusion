@@ -13,7 +13,7 @@ export interface BranchMetadata {
     headCommitId: string | null;
 }
 
-export interface RepoUpdate {
+export interface RepoUpdateData {
     commitGraph: CommitGraphData; // Removed commits are inferred from the graph
     newCommits: CommitData[] // Added commits with included deltas
 }
@@ -66,7 +66,7 @@ export abstract class BaseAsyncRepository {
 
     }
 
-    async applyRepoUpdate(updateInfo: RepoUpdate): Promise<void> {
+    async applyRepoUpdate(updateInfo: RepoUpdateData): Promise<void> {
         // Remote commit graph
         let remoteGraph = CommitGraph.fromData(updateInfo.commitGraph)
         let newCommits = updateInfo.newCommits.map((data) => new Commit(data))

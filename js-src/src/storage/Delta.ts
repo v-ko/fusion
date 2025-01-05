@@ -199,8 +199,6 @@ export class Delta {
             );
         }
 
-        // Log the final outcome for diagnostic purposes
-        log.info('Merged change:', JSON.stringify(this.change(change.entityId)));
     }
 
     changeType(entityId: string, reverse: boolean = false): ChangeType {
