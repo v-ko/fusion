@@ -18,17 +18,17 @@ export class AsyncInMemoryRepository extends BaseAsyncRepository {
     private _hashTree: HashTree | null = null;
     _currentBranch: string | null = null;
 
-    static async initFromRemote(repository: BaseAsyncRepository, localBranchName: string = 'main'): Promise<AsyncInMemoryRepository> {
-        let repo = new AsyncInMemoryRepository()
-        repo.init(localBranchName)
-        await repo.pull(repository)
-        return repo
+    async init(defaultBranchName: string) {
+        this._commitGraph.createBranch(defaultBranchName)
+        this._currentBranch = defaultBranchName
+        this._hashTree = await buildHashTree(this.headStore)
     }
 
-    async init(localBranchName: string) {
-        this._currentBranch = localBranchName
-        this._commitGraph.createBranch(this._currentBranch)
-        this._hashTree = await buildHashTree(this.headStore)
+    static async initFromRemote(repository: BaseAsyncRepository, localBranchName: string = 'main'): Promise<AsyncInMemoryRepository> {
+        let repo = new AsyncInMemoryRepository()
+        await repo.init(localBranchName)
+        await repo.pull(repository)
+        return repo
     }
 
     get currentBranch() {
@@ -276,5 +276,12 @@ export class AsyncInMemoryRepository extends BaseAsyncRepository {
             }
             localGraph.removeBranch(branch.name)
         })
+    }
+    async eraseStorage(): Promise<void> {
+        this._commitGraph = new CommitGraph()
+        this._commitById = new Map()
+        this._headStore = new InMemoryStore()
+        // Pretty much no need to do anything. This method is for removing persisted
+        // data when the user deletes a project
     }
 }

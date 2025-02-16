@@ -36,11 +36,11 @@ export abstract class BaseAsyncRepository {
     abstract commit(deltaData: any, message: string): Promise<Commit>;
 
     abstract createBranch(branchName: string): Promise<void>;
-    // abstract pull(repo: BaseAsyncRepository): Promise<void>;
     abstract reset(filter: ResetFilter): Promise<void>;
-    // abstract applyRepoUpdate(updateInfo: RepoUpdate): Promise<void>;
 
     abstract _checkAndApplyUpdate(remoteGraph: CommitGraph, newCommits: Commit[]): Promise<void>;
+
+    abstract eraseStorage(): Promise<void>;
 
     async pull(repository: BaseAsyncRepository) {
 
@@ -74,5 +74,8 @@ export abstract class BaseAsyncRepository {
         await this._checkAndApplyUpdate(remoteGraph, newCommits)
     }
 
-
+    shutdown() {
+        // Close the storage. Can be overridden in subclasses
+        log.info('Repo shutdown called. Base method, doing nothing')
+    }
 }

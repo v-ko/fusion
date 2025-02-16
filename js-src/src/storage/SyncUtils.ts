@@ -2,6 +2,9 @@ import { Commit } from "./Commit";
 import { BaseAsyncRepository, InternalRepoUpdate, RepoUpdateData } from "./BaseRepository";
 import { ChangeType } from "../Change";
 import { CommitGraph } from "./CommitGraph";
+import { getLogger } from "../logging";
+
+let log = getLogger('SyncUtils')
 
 /**
  * The sync mechanism involves auto-merging and squishing in the commit graph.
@@ -30,7 +33,7 @@ export async function autoMergeForSync(repo: BaseAsyncRepository, localBranchNam
      * Merge remote commits into the local branch. Follow the rules outlined
      * in the sync procedure above (SyncUtils.ts)
      */
-    console.log("Auto-merging for sync")
+    log.info("Auto-merging for sync")
     let changesMade = false
     let commitGraph = await repo.getCommitGraph()
     let branches = commitGraph.branches()
@@ -103,7 +106,7 @@ export async function autoMergeForSync(repo: BaseAsyncRepository, localBranchNam
         // Add the commit from the senior branch
         commitGraph = await repo.getCommitGraph();
         commitGraph.addCommit(dominantCommit)
-        repo.applyRepoUpdate({
+        await repo.applyRepoUpdate({
             commitGraph: commitGraph.data(),
             newCommits: [dominantCommit.data()]
         })
@@ -177,7 +180,7 @@ export async function autoMergeForSync(repo: BaseAsyncRepository, localBranchNam
                 commitGraph: commitGraph.data(),
                 newCommits: refreshedCommits.map(c => c.data())
             }
-            repo.applyRepoUpdate(localReaddUpdate)
+            await repo.applyRepoUpdate(localReaddUpdate)
         }
 
         // Move the branch head
@@ -192,6 +195,7 @@ export async function autoMergeForSync(repo: BaseAsyncRepository, localBranchNam
         // Advance one commit
         currentPos++;
     }
+    log.info("Auto-merge done")
 }
 
 

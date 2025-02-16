@@ -14,13 +14,10 @@ export class CommitGraph {
      */
     private _branches: BranchMetadata[] = [];
     private _commitsById: Map<string, Commit> = new Map();
-    // private _localBranchName: string = '';
-    // private _headStore: InMemoryStore | null = null;
 
     static fromData(data: CommitGraphData): CommitGraph { // , localBranchName: string
         let sg = new CommitGraph();
         sg._branches = data.branches;
-        // sg._localBranchName = localBranchName;
 
         // Create commit objects
         for (let commitData of data.commits) {
@@ -56,7 +53,7 @@ export class CommitGraph {
         }
         this._branches.splice(index, 1);
     }
-    
+
     branches(): BranchMetadata[] {
         return structuredClone(this._branches);
     }
