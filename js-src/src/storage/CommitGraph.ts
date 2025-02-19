@@ -87,7 +87,6 @@ export class CommitGraph {
          *
          * start-to-end (start=id, end=null) is not efficiently implemented
          */
-        console.log("commitsBetween", startCommitId, endCommitId)
 
         // If there's an end commit - start from it and go back by parentId
         // until the start commit or the root

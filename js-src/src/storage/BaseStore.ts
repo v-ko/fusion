@@ -66,8 +66,6 @@ export abstract class Store {
     }
 
     applyDelta(delta: Delta) {
-        console.log('Applying delta', delta)
-
         for (const change of delta.changes()) {
             this.applyChange(change);
         }

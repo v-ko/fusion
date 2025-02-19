@@ -47,7 +47,7 @@ export abstract class BaseAsyncRepository {
         // Get the update info from the remote
         let localGraph = await this.getCommitGraph()
         let remoteGraph = await repository.getCommitGraph()
-        log.info('Pulling from remote', repository, localGraph, remoteGraph)
+        // log.info('Pulling from remote', repository, localGraph, remoteGraph)
 
         // Since we'll update the commit graph to the received one - we need to
         // ensure that the changes are rational, remove unneeded commits, and

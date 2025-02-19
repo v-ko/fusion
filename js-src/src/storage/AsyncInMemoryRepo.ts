@@ -181,7 +181,7 @@ export class AsyncInMemoryRepository extends BaseAsyncRepository {
         const localGraph = this.commitGraph
 
         let repoChanges = inferRepoChangesFromGraphUpdate(localGraph, remoteGraph, newCommits)
-        log.info('[_checkAndApplyUpdate] Repo changes', repoChanges)
+        // log.info('[_checkAndApplyUpdate] Repo changes', repoChanges)
         let {
             addedCommits,
             removedCommits,
@@ -203,8 +203,8 @@ export class AsyncInMemoryRepository extends BaseAsyncRepository {
 
         let remoteHeadCommit = remoteGraph.headCommit(this.currentBranch)
         let localHeadCommit = localGraph.headCommit(this.currentBranch)
-        log.info('remoteHeadCommit', remoteHeadCommit)
-        log.info('localHeadCommit', localHeadCommit)
+        // log.info('remoteHeadCommit', remoteHeadCommit)
+        // log.info('localHeadCommit', localHeadCommit)
 
         if (remoteHeadCommit) {
             let remoteHeadId = remoteHeadCommit.id
@@ -220,7 +220,7 @@ export class AsyncInMemoryRepository extends BaseAsyncRepository {
             }
         }
 
-        log.info('[_checkAndApplyUpdate] Commits behind', commitsBehind)
+        // log.info('[_checkAndApplyUpdate] Commits behind', commitsBehind)
 
         // Add commits
         addedCommits.forEach((commit) => {
@@ -261,7 +261,7 @@ export class AsyncInMemoryRepository extends BaseAsyncRepository {
             console.log(remoteHeadCommit, this.hashTree)
             throw new Error("Snapshot hash mismatch")
         }
-        log.info('[_checkAndApplyUpdate] Updated hash tree', snapshotHash)
+        // log.info('[_checkAndApplyUpdate] Updated hash tree', snapshotHash)
 
         // Apply branch changes
         addedBranches.forEach((branch) => {

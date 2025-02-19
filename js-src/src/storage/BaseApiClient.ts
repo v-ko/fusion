@@ -37,8 +37,6 @@ export class BaseApiClient {
         if (!port) {
             const url = new URL(host);
             port = url.protocol === 'https:' ? 443 : 80;
-        } else {
-            port = port;
         }
 
         this.host = host;
