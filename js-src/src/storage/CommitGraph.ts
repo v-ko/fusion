@@ -49,7 +49,7 @@ export class CommitGraph {
     removeBranch(branchName: string) {
         let index = this._branches.findIndex(b => b.name === branchName);
         if (index === -1) {
-            throw new Error("Branch not found");
+            throw new Error("[removeBranch] Branch not found: " + branchName);
         }
         this._branches.splice(index, 1);
     }
@@ -64,7 +64,7 @@ export class CommitGraph {
     headCommit(branchName: string): Commit | null {
         let branch = this.branch(branchName);
         if (!branch) {
-            throw new Error("Branch not found");
+            throw new Error("[headCommit] Branch not found: " + branchName);
         }
         if (branch.headCommitId === null) {
             return null;
@@ -144,7 +144,7 @@ export class CommitGraph {
     branchCommits(branchName: string): Commit[] {
         let branch = this.branch(branchName);
         if (!branch) {
-            throw new Error("Branch not found");
+                throw new Error("[branchCommits] Branch not found: " + branchName);
         }
         if (!branch.headCommitId) {
             return [];
