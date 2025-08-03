@@ -2,7 +2,7 @@ import { Commit } from "./Commit";
 import { HashTree, buildHashTree, updateHashTree } from "./HashTree";
 import { createId } from "../util";
 import { CommitGraph } from "./CommitGraph";
-import { InMemoryStore } from "./InMemoryStore";
+import { InMemoryStore, IndexDefinition } from "./InMemoryStore";
 import { BaseAsyncRepository, ResetFilter } from "./BaseRepository";
 import { Delta, DeltaData, squishDeltas } from "./Delta";
 import { getLogger } from "../logging";
@@ -14,9 +14,14 @@ const log = getLogger('InMemoryRepository')
 export class AsyncInMemoryRepository extends BaseAsyncRepository {
     private _commitGraph: CommitGraph = new CommitGraph();
     private _commitById: Map<string, Commit> = new Map();
-    private _headStore: InMemoryStore = new InMemoryStore()
+    private _headStore: InMemoryStore;
     private _hashTree: HashTree | null = null;
     _currentBranch: string | null = null;
+
+    constructor(indexBy?: readonly IndexDefinition[]) {
+        super();
+        this._headStore = new InMemoryStore(indexBy);
+    }
 
     async init(localBranchName: string) {
         this._commitGraph.createBranch(localBranchName)
@@ -24,8 +29,8 @@ export class AsyncInMemoryRepository extends BaseAsyncRepository {
         this._hashTree = await buildHashTree(this.headStore)
     }
 
-    static async initFromRemote(repository: BaseAsyncRepository, localBranchName: string): Promise<AsyncInMemoryRepository> {
-        let repo = new AsyncInMemoryRepository()
+    static async initFromRemote(repository: BaseAsyncRepository, localBranchName: string, indexBy?: readonly IndexDefinition[]): Promise<AsyncInMemoryRepository> {
+        let repo = new AsyncInMemoryRepository(indexBy)
         await repo.init(localBranchName)
         await repo.pull(repository)
         return repo
@@ -280,7 +285,7 @@ export class AsyncInMemoryRepository extends BaseAsyncRepository {
     async eraseStorage(): Promise<void> {
         this._commitGraph = new CommitGraph()
         this._commitById = new Map()
-        this._headStore = new InMemoryStore()
+        this._headStore.clear()
         // Pretty much no need to do anything. This method is for removing persisted
         // data when the user deletes a project
     }

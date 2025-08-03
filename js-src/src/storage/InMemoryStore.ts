@@ -100,6 +100,9 @@ class IndexManager {
     private indexConfigs = new Map<string, IndexConfig>();
 
     constructor(indexDefinitions: readonly IndexDefinition[]) {
+        if (indexDefinitions.length === 0) {
+            throw new Error("At least one index definition is required. Entities are stored only in indexes.");
+        }
         this.initializeIndexes(indexDefinitions);
     }
 
@@ -350,7 +353,7 @@ export class InMemoryStore extends Store {
     private queryOptimizer: QueryOptimizer;
 
     constructor(
-        private readonly indexBy: readonly IndexDefinition[] = [...DEFAULT_FDS_INDEX_DEFINITIONS]
+        indexBy: readonly IndexDefinition[] = [...DEFAULT_FDS_INDEX_DEFINITIONS]
     ) {
         super();
         this.indexManager = new IndexManager(indexBy);
@@ -490,5 +493,13 @@ export class InMemoryStore extends Store {
             return entity; // Return the first entity that matches the filter
         }
         return undefined; // If no entity matches the filter
+    }
+
+    clear(): void {
+        // Clear all indexes while preserving the index configuration
+        const { indexes } = this.indexManager.indexStorage;
+        for (const index of indexes.values()) {
+            index.clear();
+        }
     }
 }
