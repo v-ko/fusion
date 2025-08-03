@@ -20,8 +20,14 @@ interface ICryptoModule {
 let _cryptoModule: ICryptoModule;
 
 if (typeof window !== 'undefined') {
+    // Browser main thread environment
     _cryptoModule = window.crypto;
+} else if (typeof self !== 'undefined' && (self as any).crypto) {
+    // Service worker environment - use self.crypto
+    _cryptoModule = (self as any).crypto;
 } else {
+    // Node.js test environment - use dynamic require for crypto module
+    // eslint-disable-next-line
     _cryptoModule = require('crypto').webcrypto;
 }
 
@@ -64,6 +70,31 @@ export function timestamp(dt: Date, microseconds: boolean = false): string {
     } else {
         return dt.toISOString().split('.')[0] + 'Z';
     }
+}
+
+/**
+ * Generate a filename-appropriate timestamp with microseconds for unique image filenames.
+ * Format: YYYY-MM-DD_HH-MM-SS_microseconds
+ * Example: 2025-07-04_16-50-30_123456
+ */
+export function generateFilenameTimestamp(): string {
+    const now = new Date();
+
+    // Get date components
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+
+    // Get time components
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+
+    // Get microseconds (milliseconds * 1000 + random component for uniqueness)
+    const milliseconds = now.getMilliseconds();
+    const microseconds = String(milliseconds * 1000 + Math.floor(Math.random() * 1000)).padStart(6, '0');
+
+    return `${year}-${month}-${day}_${hours}-${minutes}-${seconds}_${microseconds}`;
 }
 
 export function degreesToRadians(degrees: number) {

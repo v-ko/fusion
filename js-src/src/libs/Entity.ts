@@ -82,6 +82,9 @@ export interface EntityData {
 
 
 export abstract class Entity<T extends EntityData> {
+    // The 3 levels of data can be interpreted as:
+    //  entit instance: 1. metadata scope , 2 metadata object , 3. property
+    // like entity.content.image.width
     _data: T;
 
     constructor(data: T) {
@@ -152,7 +155,7 @@ export abstract class Entity<T extends EntityData> {
         /**
          * Granularity: level 1 entity property. Read below!
          * If a level1 key object (or its children) has changed
-         * (like entity.content.image.url) - the whole key is added to the delta
+         * (like entity.content.image.width) - the whole key is added to the delta
          */
         if (this.id !== other.id) {
             throw new Error('Cannot create delta from different entities');

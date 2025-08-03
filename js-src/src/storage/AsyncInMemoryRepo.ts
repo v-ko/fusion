@@ -18,13 +18,13 @@ export class AsyncInMemoryRepository extends BaseAsyncRepository {
     private _hashTree: HashTree | null = null;
     _currentBranch: string | null = null;
 
-    async init(defaultBranchName: string) {
-        this._commitGraph.createBranch(defaultBranchName)
-        this._currentBranch = defaultBranchName
+    async init(localBranchName: string) {
+        this._commitGraph.createBranch(localBranchName)
+        this._currentBranch = localBranchName
         this._hashTree = await buildHashTree(this.headStore)
     }
 
-    static async initFromRemote(repository: BaseAsyncRepository, localBranchName: string = 'main'): Promise<AsyncInMemoryRepository> {
+    static async initFromRemote(repository: BaseAsyncRepository, localBranchName: string): Promise<AsyncInMemoryRepository> {
         let repo = new AsyncInMemoryRepository()
         await repo.init(localBranchName)
         await repo.pull(repository)

@@ -5,156 +5,484 @@ import { getLogger } from "../logging"
 
 const log = getLogger('InMemoryRepository')
 
+// Core type definitions
+export type IndexField = string | EntityTypeIndexConfig;
+export type IndexDefinition = readonly IndexField[];
 
-export class InMemoryStore extends Store {
-    private perEntityId: Map<string, Entity<EntityData>>;
-    private perEntityParentId: Map<string, Entity<EntityData>[]>;
-    private perEntityType: Map<string, Entity<EntityData>[]>;
+// Configuration for entity type indexing with inheritance support
+export interface EntityTypeIndexConfig {
+    indexKey: 'entityType';
+    allowedTypes: any[]; // Constructor functions for base classes
+}
 
-    constructor() {
-        super()
-        this.perEntityId = new Map();
-        this.perEntityParentId = new Map();
-        this.perEntityType = new Map();
+// Index configuration with metadata
+export interface IndexConfig {
+    readonly definition: IndexDefinition;
+    readonly isUnique: boolean;
+    readonly name?: string;
+}
+
+// Index value types
+type IndexValue = Entity<EntityData> | Entity<EntityData>[];
+
+// Index key generation
+type IndexKey = string;
+
+// Helper function to check if a field is an EntityTypeIndexConfig
+function isEntityTypeIndexConfig(field: IndexField): field is EntityTypeIndexConfig {
+    return typeof field === 'object' && field.indexKey === 'entityType';
+}
+
+// Generate index schema from definition
+function getIndexSchema(definition: IndexDefinition): string {
+    const nameParts: string[] = [];
+
+    for (const field of definition) {
+        // Stage 1: Check if this is an entity type index configuration
+        if (isEntityTypeIndexConfig(field)) {
+            // Stage 2: Convert entity type config to standard type name
+            nameParts.push('__type__');
+        } else {
+            // Stage 3: Handle regular string field names
+            nameParts.push(field as string);
+        }
     }
 
-    private upsertToCache(entity: Entity<EntityData>, isNew: boolean): void {
-        // Copy the entity to protect the repo from untracked changes
-        entity = entity.copy();
+    // Stage 4: Join all parts with separator
+    return nameParts.join('|');
+}
 
-        // Update perEntityId map
-        this.perEntityId.set(entity.id, entity);
+// Generate index key from entity and definition
+function generateIndexKey(entity: Entity<EntityData>, definition: IndexDefinition): IndexKey | null {
+    const keyParts: string[] = [];
 
-        // Update perEntityParentId map
-        if (entity.parentId !== null) {
-            const siblings = this.perEntityParentId.get(entity.parentId) || [];
-            const existingIndex = siblings.findIndex(sibling => sibling.id === entity.id);
-            if (existingIndex !== -1 && isNew) {
-                throw new Error(`Entity with ID ${entity.id} already exists in parentId mapping.`);
+    for (const field of definition) {
+        let value: any;
+
+        if (isEntityTypeIndexConfig(field)) {
+            // For entity type config, check if entity matches any allowed types
+            let matchedType: string | null = null;
+
+            // Check if entity is instance of any allowed base types
+            for (const allowedType of field.allowedTypes) {
+                if (entity instanceof allowedType) {
+                    matchedType = allowedType.name;
+                    break;
+                }
             }
-            if (existingIndex === -1) {
-                siblings.push(entity);
+
+            // If no match found, this entity shouldn't be indexed by this config
+            if (matchedType === null) {
+                return null;
+            }
+
+            value = matchedType;
+        } else {
+            // Access entity property directly (not from _data)
+            value = (entity as any)[field as string];
+        }
+
+        // Exclude entities with undefined index properties
+        if (value === undefined) {
+            return null;
+        }
+
+        // Convert to string for key generation
+        keyParts.push(String(value));
+    }
+
+    return keyParts.join('|');
+}
+
+// Index management system
+class IndexManager {
+    private indexes = new Map<string, Map<IndexKey, IndexValue>>();
+    private indexConfigs = new Map<string, IndexConfig>();
+
+    constructor(indexDefinitions: readonly IndexDefinition[]) {
+        this.initializeIndexes(indexDefinitions);
+    }
+
+    private initializeIndexes(definitions: readonly IndexDefinition[]): void {
+        for (const definition of definitions) {
+            const config: IndexConfig = {
+                definition,
+                isUnique: this.isUniqueIndex(definition)
+            };
+
+            const indexName = getIndexSchema(definition);
+            this.indexConfigs.set(indexName, config);
+            this.indexes.set(indexName, new Map());
+        }
+    }
+
+    private isUniqueIndex(definition: IndexDefinition): boolean {
+        // Single-field "id" index is unique
+        return definition.length === 1 && definition[0] === 'id';
+    }
+
+    addEntity(entity: Entity<EntityData>): void {
+        for (const [indexName, config] of this.indexConfigs) {
+            const indexKey = generateIndexKey(entity, config.definition);
+            if (indexKey === null) continue; // Skip if any field is undefined
+
+            const index = this.indexes.get(indexName)!;
+
+            if (config.isUnique) {
+                index.set(indexKey, entity);
             } else {
-                siblings[existingIndex] = entity; // Update existing entity in case of update
-            }
-            this.perEntityParentId.set(entity.parentId, siblings);
-        }
-
-        // Update perEntityType map
-        const typeName = entity.constructor.name;
-        const typeEntities = this.perEntityType.get(typeName) || [];
-        const typeIndex = typeEntities.findIndex(e => e.id === entity.id);
-        if (typeIndex === -1 && isNew) {
-            typeEntities.push(entity);
-        } else if (typeIndex !== -1 && !isNew) {
-            typeEntities[typeIndex] = entity; // Update existing entity in case of update
-        } else if (isNew) {
-            throw new Error(`Entity with ID ${entity.id} already exists in type mapping.`);
-        }
-        this.perEntityType.set(typeName, typeEntities);
-    }
-
-    private removeFromCache(entity: Entity<EntityData>): void {
-        // Remove from perEntityId map
-        this.perEntityId.delete(entity.id);
-
-        // Remove from perEntityParentId map
-        if (entity.parentId !== null) {
-            const siblings = this.perEntityParentId.get(entity.parentId) || [];
-            const index = siblings.findIndex(sibling => sibling.id === entity.id);
-            if (index !== -1) {
-                siblings.splice(index, 1);
-                if (siblings.length > 0) {
-                    this.perEntityParentId.set(entity.parentId, siblings);
+                const existing = index.get(indexKey) as Entity<EntityData>[] | undefined;
+                if (existing) {
+                    existing.push(entity);
                 } else {
-                    this.perEntityParentId.delete(entity.parentId);
+                    index.set(indexKey, [entity]);
                 }
             }
         }
+    }
 
-        // Remove from perEntityType map
-        const typeName = entity.constructor.name;
-        const typeEntities = this.perEntityType.get(typeName) || [];
-        const typeIndex = typeEntities.findIndex(e => e.id === entity.id);
-        if (typeIndex !== -1) {
-            typeEntities.splice(typeIndex, 1);
-            if (typeEntities.length > 0) {
-                this.perEntityType.set(typeName, typeEntities);
+    removeEntity(entity: Entity<EntityData>): void {
+        for (const [indexName, config] of this.indexConfigs) {
+            const indexKey = generateIndexKey(entity, config.definition);
+            if (indexKey === null) continue;
+
+            const index = this.indexes.get(indexName)!;
+
+            if (config.isUnique) {
+                index.delete(indexKey);
             } else {
-                this.perEntityType.delete(typeName);
+                const entities = index.get(indexKey) as Entity<EntityData>[] | undefined;
+                if (entities) {
+                    const entityIndex = entities.findIndex(e => e.id === entity.id);
+                    if (entityIndex !== -1) {
+                        entities.splice(entityIndex, 1);
+                        if (entities.length === 0) {
+                            index.delete(indexKey);
+                        }
+                    }
+                }
             }
         }
+    }
+
+    updateEntity(oldEntity: Entity<EntityData>, newEntity: Entity<EntityData>, changedFields?: Set<string>): void {
+        if (!changedFields) {
+            // Fallback to full update if no change info provided
+            this.removeEntity(oldEntity);
+            this.addEntity(newEntity);
+            return;
+        }
+
+        // Only update indexes that are affected by changed fields
+        for (const [indexName, config] of this.indexConfigs) {
+            const isIndexAffected = config.definition.some(field => {
+                if (isEntityTypeIndexConfig(field)) {
+                    // Type changes are rare but possible, check constructor names
+                    return oldEntity.constructor.name !== newEntity.constructor.name;
+                }
+                return changedFields.has(field as string);
+            });
+
+            if (isIndexAffected) {
+                // Remove from old index position
+                const oldIndexKey = generateIndexKey(oldEntity, config.definition);
+                if (oldIndexKey !== null) {
+                    const index = this.indexes.get(indexName)!;
+
+                    if (config.isUnique) {
+                        index.delete(oldIndexKey);
+                    } else {
+                        const entities = index.get(oldIndexKey) as Entity<EntityData>[] | undefined;
+                        if (entities) {
+                            const entityIndex = entities.findIndex(e => e.id === oldEntity.id);
+                            if (entityIndex !== -1) {
+                                entities.splice(entityIndex, 1);
+                                if (entities.length === 0) {
+                                    index.delete(oldIndexKey);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Add to new index position
+                const newIndexKey = generateIndexKey(newEntity, config.definition);
+                if (newIndexKey !== null) {
+                    const index = this.indexes.get(indexName)!;
+
+                    if (config.isUnique) {
+                        index.set(newIndexKey, newEntity);
+                    } else {
+                        const existing = index.get(newIndexKey) as Entity<EntityData>[] | undefined;
+                        if (existing) {
+                            existing.push(newEntity);
+                        } else {
+                            index.set(newIndexKey, [newEntity]);
+                        }
+                    }
+                }
+            } else {
+                // Index not affected, just update the entity reference in place
+                const indexKey = generateIndexKey(oldEntity, config.definition);
+                if (indexKey !== null) {
+                    const index = this.indexes.get(indexName)!;
+
+                    if (config.isUnique) {
+                        index.set(indexKey, newEntity);
+                    } else {
+                        const entities = index.get(indexKey) as Entity<EntityData>[] | undefined;
+                        if (entities) {
+                            const entityIndex = entities.findIndex(e => e.id === oldEntity.id);
+                            if (entityIndex !== -1) {
+                                entities[entityIndex] = newEntity;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Getter for accessing indexes (used by QueryOptimizer)
+    get indexStorage() {
+        return {
+            indexes: this.indexes,
+            indexConfigs: this.indexConfigs
+        };
+    }
+}
+
+// Query optimization
+interface QueryPlan {
+    indexName: string;
+    indexKey: IndexKey;
+    estimatedSelectivity: number;
+}
+
+class QueryOptimizer {
+    constructor(private indexManager: IndexManager) {}
+
+    findBestIndex(filter: SearchFilter): QueryPlan | null {
+        const candidates: QueryPlan[] = [];
+        const { indexes, indexConfigs } = this.indexManager.indexStorage;
+
+        // Check each index to see if it can satisfy the filter
+        for (const [indexName, config] of indexConfigs) {
+            const indexKey = this.tryGenerateFilterKey(filter, config.definition);
+            if (indexKey !== null) {
+                const selectivity = this.estimateSelectivity(indexName, indexKey, indexes);
+                candidates.push({ indexName, indexKey, estimatedSelectivity: selectivity });
+            }
+        }
+
+        // Sort by selectivity (lower is better - fewer results)
+        candidates.sort((a, b) => a.estimatedSelectivity - b.estimatedSelectivity);
+
+        return candidates[0] || null;
+    }
+
+    private tryGenerateFilterKey(filter: SearchFilter, definition: IndexDefinition): IndexKey | null {
+        const keyParts: string[] = [];
+
+        for (const field of definition) {
+            let value: any;
+
+            if (isEntityTypeIndexConfig(field)) {
+                // For entity type config, check if the filter type matches any allowed types
+                if (!filter.type) {
+                    return null; // No type in filter, can't use this index
+                }
+
+                let matchedType: string | null = null;
+                for (const allowedType of field.allowedTypes) {
+                    if (filter.type === allowedType) {
+                        matchedType = allowedType.name;
+                        break;
+                    }
+                }
+
+                if (matchedType === null) {
+                    log.info('Query type not in configured index types - falling back to full scan');
+                    return null; // Type not in allowed types, fall back to scan
+                }
+
+                value = matchedType;
+            } else if (field === 'id') {
+                value = filter.id;
+            } else if (field === 'parentId') {
+                value = filter.parentId;
+            } else {
+                value = filter[field as string];
+            }
+
+            if (value === undefined) {
+                return null; // Cannot use this index
+            }
+
+            keyParts.push(String(value));
+        }
+
+        return keyParts.join('|');
+    }
+
+    private estimateSelectivity(indexName: string, indexKey: IndexKey, indexes: Map<string, Map<IndexKey, IndexValue>>): number {
+        const index = indexes.get(indexName)!;
+        const value = index.get(indexKey);
+
+        if (!value) return 0;
+
+        // For unique indexes, selectivity is always 1
+        if (!Array.isArray(value)) return 1;
+
+        // For multi-value indexes, return array length
+        return value.length;
+    }
+}
+
+export const DEFAULT_FDS_INDEX_DEFINITIONS: readonly IndexDefinition[] = [
+    ["id"],                    // Unique index for entity lookup by ID
+    ["parentId"],              // Index for parent-child relationships
+] as const;
+
+
+export class InMemoryStore extends Store {
+    private indexManager: IndexManager;
+    private queryOptimizer: QueryOptimizer;
+
+    constructor(
+        private readonly indexBy: readonly IndexDefinition[] = [...DEFAULT_FDS_INDEX_DEFINITIONS]
+    ) {
+        super();
+        this.indexManager = new IndexManager(indexBy);
+        this.queryOptimizer = new QueryOptimizer(this.indexManager);
+    }
+
+    private upsertToCache(entity: Entity<EntityData>, isNew: boolean): Change {
+        // Copy the entity to protect the repo from untracked changes
+        entity = entity.copy();
+
+        if (isNew) {
+            // For new entities, just add to all indexes
+            this.indexManager.addEntity(entity);
+            return Change.create(entity);
+        } else {
+            // For updates, get the old entity and create change first
+            const { indexes } = this.indexManager.indexStorage;
+            const idIndex = indexes.get("id");
+            const oldEntity = idIndex?.get(entity.id) as Entity<EntityData> | undefined;
+
+            if (!oldEntity) {
+                throw new Error(`Entity with ID ${entity.id} does not exist for update.`);
+            }
+
+            // Create the change object to get what fields actually changed
+            const change = Change.update(oldEntity, entity);
+
+            // Extract changed fields from the change object
+            const changedFields = new Set(Object.keys(change.forwardComponent));
+
+            // Use optimized update that only touches affected indexes
+            this.indexManager.updateEntity(oldEntity, entity, changedFields);
+
+            return change;
+        }
+    }
+
+    private removeFromCache(entity: Entity<EntityData>): void {
+        this.indexManager.removeEntity(entity);
     }
 
     insertOne(entity: Entity<EntityData>): Change {
         // console.log('Inserting entity', entity.id, entity.parentId, entity.constructor.name)
-        if (this.perEntityId.has(entity.id)) {
+
+        // Check if entity already exists using the id index
+        const { indexes } = this.indexManager.indexStorage;
+        const idIndex = indexes.get("id");
+        if (idIndex && idIndex.has(entity.id)) {
             throw new Error(`Entity with ID ${entity.id} already exists.`);
         }
-        this.upsertToCache(entity, true);
-        return Change.create(entity);
+
+        return this.upsertToCache(entity, true);
     }
 
     updateOne(entity: Entity<EntityData>): Change {
-        let oldState = this.perEntityId.get(entity.id);
-        if (!oldState) {
-            throw new Error(`Entity with ID ${entity.id} does not exist.`);
-        }
-        this.upsertToCache(entity, false);
-        return Change.update(oldState, entity);
+        return this.upsertToCache(entity, false);
     }
 
     removeOne(entity: Entity<EntityData>): Change {
-        if (!this.perEntityId.has(entity.id)) {
+        // Check if entity exists using the id index
+        const { indexes } = this.indexManager.indexStorage;
+        const idIndex = indexes.get("id");
+        const oldEntity = idIndex?.get(entity.id) as Entity<EntityData> | undefined;
+
+        if (!oldEntity) {
             throw new Error(`Entity with ID ${entity.id} does not exist.`);
         }
-        let oldEntity = this.perEntityId.get(entity.id);
-        if (oldEntity) {
-            this.removeFromCache(oldEntity);
-        }
+
+        this.removeFromCache(oldEntity);
         return Change.delete(entity);
     }
 
-
     *find<T extends Entity<EntityData>>(filter: SearchFilter = {}): Generator<T> {
+        // console.log('InMemoryStore.find called with filter:', filter);
         const { id, type, parentId, ...otherFilters } = filter;
+
+        // Try to find the best index for this query
+        const queryPlan = this.queryOptimizer.findBestIndex(filter);
+        // console.log('Query plan:', queryPlan);
 
         let candidates: Entity<EntityData>[] = [];
 
-        // Filter by ID
-        if (id !== undefined) {
-            const entity = this.perEntityId.get(id);
-            if (entity && (!type || entity instanceof type)) {
-                candidates.push(entity);
+        if (queryPlan) {
+            // Use the optimized index
+            const { indexes } = this.indexManager.indexStorage;
+            const index = indexes.get(queryPlan.indexName)!;
+            const result = index.get(queryPlan.indexKey);
+            // console.log('Index result:', result);
+
+            if (result) {
+                candidates = Array.isArray(result) ? result : [result];
             }
-        }
-        // Filter by Parent ID
-        else if (parentId !== undefined) {
-            const entities = this.perEntityParentId.get(parentId) || [];
-            if (type) {
-                candidates = entities.filter(entity => entity instanceof type);
-            } else {
-                candidates = entities;
-            }
-        }
-        // Filter by Type
-        else if (type !== undefined) {
-            const typeName = type.name;
-            candidates = this.perEntityType.get(typeName) || [];
         } else {
-            // If no specific ID, type, or Parent ID is provided, consider all entities
-            candidates = Array.from(this.perEntityId.values());
+            // Fallback to full scan using the id index
+            const { indexes } = this.indexManager.indexStorage;
+            const allEntitiesIndex = indexes.get("id");
+            console.log('Fallback to full scan, id index size:', allEntitiesIndex?.size);
+            if (allEntitiesIndex) {
+                candidates = Array.from(allEntitiesIndex.values()) as Entity<EntityData>[];
+            }
         }
 
-        // Apply otherFilters
-        candidatesLoop: for (const candidate of candidates as Record<string, any>[]) {
+        // console.log('Candidates found:', candidates.length);
+
+        // Apply additional filters
+        candidatesLoop: for (const candidate of candidates) {
+            // console.log('Processing candidate:', candidate.constructor.name, candidate.id);
+
+            // Type filter (if not already handled by index)
+            if (type && !(candidate instanceof type)) {
+                console.log('Type filter failed for candidate:', (candidate as any).constructor.name, 'expected:', type.name);
+                continue;
+            }
+
+            // Apply other filters - check entity properties directly, not _data
             for (const [key, value] of Object.entries(otherFilters)) {
-                if (candidate._data[key] !== value) {
-                    continue candidatesLoop; // Skip entities that do not match other filters
+                // First try entity property, then fall back to _data for backward compatibility
+                const entityValue = (candidate as any)[key] !== undefined
+                    ? (candidate as any)[key]
+                    : (candidate as any)._data[key];
+
+                if (entityValue !== value) {
+                    console.log('Filter failed for candidate:', key, entityValue, '!==', value);
+                    continue candidatesLoop;
                 }
             }
+
+            // console.log('Yielding candidate:', candidate.constructor.name, candidate.id);
             yield candidate.copy() as T;
         }
+
+        // console.log('InMemoryStore.find generator completed');
     }
 
     findOne<T extends Entity<EntityData>>(filter: SearchFilter): T | undefined {
@@ -163,5 +491,4 @@ export class InMemoryStore extends Store {
         }
         return undefined; // If no entity matches the filter
     }
-
 }
