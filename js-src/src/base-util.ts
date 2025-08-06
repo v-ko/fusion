@@ -1,5 +1,4 @@
 import slugify from "slugify";
-import { MAX_MEDIA_NAME_LENGTH } from "web-app/src/core/constants";
 
 let _fakeTime: Date | null = null;  // For testing purposes
 let _deterministicIds = false;
@@ -101,7 +100,7 @@ export function degreesToRadians(degrees: number) {
     return degrees * (Math.PI / 180);
 }
 
-export function toUriFriendlyFileName(filename: string, maxLength: number = MAX_MEDIA_NAME_LENGTH): string {
+export function toUriFriendlyFileName(filename: string, maxLength: number): string {
     // First slugify the entire filename
     const slugifiedFilename = slugify(filename, {
         strict: true, // Strip special characters except replacement
