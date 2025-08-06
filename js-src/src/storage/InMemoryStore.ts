@@ -1,25 +1,33 @@
 import { Store, SearchFilter } from "./BaseStore"
-import { Entity, EntityData } from "../libs/Entity"
+import { Entity, EntityData, getEntityClassByName } from "../libs/Entity"
 import { Change } from "../Change"
 import { getLogger } from "../logging"
 
 const log = getLogger('InMemoryRepository')
 
+export const ENTITY_TYPE_INDEX_KEY = 'entityType';
 // Core type definitions
-export type IndexField = string | EntityTypeIndexConfig;
-export type IndexDefinition = readonly IndexField[];
+export interface IndexField {
+    indexKey: string;
+    allowedTypes?: string[]; // Constructor functions for base classes
+}
 
-// Configuration for entity type indexing with inheritance support
-export interface EntityTypeIndexConfig {
-    indexKey: 'entityType';
-    allowedTypes: any[]; // Constructor functions for base classes
+interface ResolvedIndexField extends IndexField {
+    resolvedAllowedTypes?: (typeof Entity)[]; // Resolved types for instanceof checks
 }
 
 // Index configuration with metadata
 export interface IndexConfig {
-    readonly definition: IndexDefinition;
-    readonly isUnique: boolean;
+    readonly fields: IndexField[];
+    readonly isUnique: boolean; // If the added entities are expected to be unique
     readonly name?: string;
+}
+
+// Internal representation of a fully processed and validated index configuration
+interface ResolvedIndexConfig extends IndexConfig {
+    name: string;
+    isUnique: boolean;
+    resolvedFields: ResolvedIndexField[]; // To make the instanceof checks with
 }
 
 // Index value types
@@ -29,22 +37,22 @@ type IndexValue = Entity<EntityData> | Entity<EntityData>[];
 type IndexKey = string;
 
 // Helper function to check if a field is an EntityTypeIndexConfig
-function isEntityTypeIndexConfig(field: IndexField): field is EntityTypeIndexConfig {
-    return typeof field === 'object' && field.indexKey === 'entityType';
+function isEntityTypeIndexConfig(field: IndexField): boolean {
+    return field.indexKey === ENTITY_TYPE_INDEX_KEY;
 }
 
 // Generate index schema from definition
-function getIndexSchema(definition: IndexDefinition): string {
+function getIndexSchema(fields: IndexField[]): string {
     const nameParts: string[] = [];
 
-    for (const field of definition) {
+    for (const field of fields) {
         // Stage 1: Check if this is an entity type index configuration
         if (isEntityTypeIndexConfig(field)) {
             // Stage 2: Convert entity type config to standard type name
             nameParts.push('__type__');
         } else {
             // Stage 3: Handle regular string field names
-            nameParts.push(field as string);
+            nameParts.push(field.indexKey);
         }
     }
 
@@ -53,10 +61,10 @@ function getIndexSchema(definition: IndexDefinition): string {
 }
 
 // Generate index key from entity and definition
-function generateIndexKey(entity: Entity<EntityData>, definition: IndexDefinition): IndexKey | null {
+function generateIndexKey(entity: Entity<EntityData>, config: ResolvedIndexConfig): IndexKey | null {
     const keyParts: string[] = [];
 
-    for (const field of definition) {
+    for (const field of config.resolvedFields) {
         let value: any;
 
         if (isEntityTypeIndexConfig(field)) {
@@ -64,7 +72,7 @@ function generateIndexKey(entity: Entity<EntityData>, definition: IndexDefinitio
             let matchedType: string | null = null;
 
             // Check if entity is instance of any allowed base types
-            for (const allowedType of field.allowedTypes) {
+            for (const allowedType of field.resolvedAllowedTypes!) {
                 if (entity instanceof allowedType) {
                     matchedType = allowedType.name;
                     break;
@@ -79,7 +87,7 @@ function generateIndexKey(entity: Entity<EntityData>, definition: IndexDefinitio
             value = matchedType;
         } else {
             // Access entity property directly (not from _data)
-            value = (entity as any)[field as string];
+            value = (entity as any)[field.indexKey];
         }
 
         // Exclude entities with undefined index properties
@@ -97,36 +105,56 @@ function generateIndexKey(entity: Entity<EntityData>, definition: IndexDefinitio
 // Index management system
 class IndexManager {
     private indexes = new Map<string, Map<IndexKey, IndexValue>>();
-    private indexConfigs = new Map<string, IndexConfig>();
+    private resolvedIndexConfigs = new Map<string, ResolvedIndexConfig>();
 
-    constructor(indexDefinitions: readonly IndexDefinition[]) {
-        if (indexDefinitions.length === 0) {
+    constructor(indexConfigs: readonly IndexConfig[]) {
+        if (indexConfigs.length === 0) {
             throw new Error("At least one index definition is required. Entities are stored only in indexes.");
         }
-        this.initializeIndexes(indexDefinitions);
+        this.initializeIndexes(indexConfigs);
     }
 
-    private initializeIndexes(definitions: readonly IndexDefinition[]): void {
-        for (const definition of definitions) {
-            const config: IndexConfig = {
-                definition,
-                isUnique: this.isUniqueIndex(definition)
+    private initializeIndexes(configs: readonly IndexConfig[]): void {
+        for (const config of configs) {
+            const indexName = config.name || getIndexSchema(config.fields);
+            if (this.resolvedIndexConfigs.has(indexName)) {
+                throw new Error(`Duplicate index name: "${indexName}"`);
+            }
+
+            const resolvedFields: ResolvedIndexField[] = config.fields.map(field => {
+                if (isEntityTypeIndexConfig(field)) {
+                    if (!field.allowedTypes || field.allowedTypes.length === 0) {
+                        throw new Error(`Index of type '${ENTITY_TYPE_INDEX_KEY}' must have a non-empty 'allowedTypes' array. Index name: "${indexName}"`);
+                    }
+                    const resolvedAllowedTypes = field.allowedTypes.map(typeName => {
+                        const cls = getEntityClassByName(typeName);
+                        if (!cls) {
+                            throw new Error(`Entity class "${typeName}" not found for index "${indexName}"`);
+                        }
+                        return cls;
+                    });
+                    return { ...field, resolvedAllowedTypes };
+                } else if (field.allowedTypes) {
+                    log.warning(`'allowedTypes' is only applicable for '${ENTITY_TYPE_INDEX_KEY}' indexes. Ignoring for index "${indexName}".`);
+                }
+                return field;
+            });
+
+            const resolvedConfig: ResolvedIndexConfig = {
+                ...config,
+                name: indexName,
+                isUnique: config.isUnique,
+                resolvedFields: resolvedFields,
             };
 
-            const indexName = getIndexSchema(definition);
-            this.indexConfigs.set(indexName, config);
+            this.resolvedIndexConfigs.set(indexName, resolvedConfig);
             this.indexes.set(indexName, new Map());
         }
     }
 
-    private isUniqueIndex(definition: IndexDefinition): boolean {
-        // Single-field "id" index is unique
-        return definition.length === 1 && definition[0] === 'id';
-    }
-
     addEntity(entity: Entity<EntityData>): void {
-        for (const [indexName, config] of this.indexConfigs) {
-            const indexKey = generateIndexKey(entity, config.definition);
+        for (const [indexName, config] of this.resolvedIndexConfigs) {
+            const indexKey = generateIndexKey(entity, config);
             if (indexKey === null) continue; // Skip if any field is undefined
 
             const index = this.indexes.get(indexName)!;
@@ -145,8 +173,8 @@ class IndexManager {
     }
 
     removeEntity(entity: Entity<EntityData>): void {
-        for (const [indexName, config] of this.indexConfigs) {
-            const indexKey = generateIndexKey(entity, config.definition);
+        for (const [indexName, config] of this.resolvedIndexConfigs) {
+            const indexKey = generateIndexKey(entity, config);
             if (indexKey === null) continue;
 
             const index = this.indexes.get(indexName)!;
@@ -177,18 +205,18 @@ class IndexManager {
         }
 
         // Only update indexes that are affected by changed fields
-        for (const [indexName, config] of this.indexConfigs) {
-            const isIndexAffected = config.definition.some(field => {
+        for (const [indexName, config] of this.resolvedIndexConfigs) {
+            const isIndexAffected = config.fields.some(field => {
                 if (isEntityTypeIndexConfig(field)) {
                     // Type changes are rare but possible, check constructor names
                     return oldEntity.constructor.name !== newEntity.constructor.name;
                 }
-                return changedFields.has(field as string);
+                return changedFields.has(field.indexKey);
             });
 
             if (isIndexAffected) {
                 // Remove from old index position
-                const oldIndexKey = generateIndexKey(oldEntity, config.definition);
+                const oldIndexKey = generateIndexKey(oldEntity, config);
                 if (oldIndexKey !== null) {
                     const index = this.indexes.get(indexName)!;
 
@@ -209,7 +237,7 @@ class IndexManager {
                 }
 
                 // Add to new index position
-                const newIndexKey = generateIndexKey(newEntity, config.definition);
+                const newIndexKey = generateIndexKey(newEntity, config);
                 if (newIndexKey !== null) {
                     const index = this.indexes.get(indexName)!;
 
@@ -226,7 +254,7 @@ class IndexManager {
                 }
             } else {
                 // Index not affected, just update the entity reference in place
-                const indexKey = generateIndexKey(oldEntity, config.definition);
+                const indexKey = generateIndexKey(oldEntity, config);
                 if (indexKey !== null) {
                     const index = this.indexes.get(indexName)!;
 
@@ -250,7 +278,7 @@ class IndexManager {
     get indexStorage() {
         return {
             indexes: this.indexes,
-            indexConfigs: this.indexConfigs
+            indexConfigs: this.resolvedIndexConfigs
         };
     }
 }
@@ -271,7 +299,7 @@ class QueryOptimizer {
 
         // Check each index to see if it can satisfy the filter
         for (const [indexName, config] of indexConfigs) {
-            const indexKey = this.tryGenerateFilterKey(filter, config.definition);
+            const indexKey = this.tryGenerateFilterKey(filter, config);
             if (indexKey !== null) {
                 const selectivity = this.estimateSelectivity(indexName, indexKey, indexes);
                 candidates.push({ indexName, indexKey, estimatedSelectivity: selectivity });
@@ -284,10 +312,10 @@ class QueryOptimizer {
         return candidates[0] || null;
     }
 
-    private tryGenerateFilterKey(filter: SearchFilter, definition: IndexDefinition): IndexKey | null {
+    private tryGenerateFilterKey(filter: SearchFilter, config: ResolvedIndexConfig): IndexKey | null {
         const keyParts: string[] = [];
 
-        for (const field of definition) {
+        for (const field of config.resolvedFields) {
             let value: any;
 
             if (isEntityTypeIndexConfig(field)) {
@@ -297,8 +325,12 @@ class QueryOptimizer {
                 }
 
                 let matchedType: string | null = null;
-                for (const allowedType of field.allowedTypes) {
+                // Here we check if filter.type (a class constructor) is a subclass of any of the resolved allowed types
+                for (const allowedType of field.resolvedAllowedTypes!) {
                     if (filter.type === allowedType) {
+                        // Entities get indexed by the allowed class the matched
+                        // on insertion. Therefore here we can safely use a
+                        // strict equivalence check.
                         matchedType = allowedType.name;
                         break;
                     }
@@ -310,12 +342,8 @@ class QueryOptimizer {
                 }
 
                 value = matchedType;
-            } else if (field === 'id') {
-                value = filter.id;
-            } else if (field === 'parentId') {
-                value = filter.parentId;
             } else {
-                value = filter[field as string];
+                value = filter[field.indexKey];
             }
 
             if (value === undefined) {
@@ -342,21 +370,42 @@ class QueryOptimizer {
     }
 }
 
-export const DEFAULT_FDS_INDEX_DEFINITIONS: readonly IndexDefinition[] = [
-    ["id"],                    // Unique index for entity lookup by ID
-    ["parentId"],              // Index for parent-child relationships
-] as const;
+export const DEFAULT_INDEX_CONFIGS_LIST: readonly IndexConfig[] = [
+    {
+        name: "id",
+        fields: [{ indexKey: "id" }],
+        isUnique: true
+    },
 
+    {
+        name: "parentId",
+        fields: [{ indexKey: "parentId" }],
+        isUnique: false
+    },
+    // { Example for how to use the type index and compound index (with type)
+    //     name: ENTITY_TYPE_INDEX_KEY,
+    //     fields: [{ indexKey: ENTITY_TYPE_INDEX_KEY, allowedTypes: ["Note", "Arrow"] }],
+    //     isUnique: false
+    // },
+    // {
+    //     name: "type_parentId",
+    //     fields: [
+    //         { indexKey: ENTITY_TYPE_INDEX_KEY, allowedTypes: ["Note", "Arrow"] },
+    //         { indexKey: "parentId" }
+    //     ],
+    //     isUnique: false
+    // }
+]
 
 export class InMemoryStore extends Store {
     private indexManager: IndexManager;
     private queryOptimizer: QueryOptimizer;
 
     constructor(
-        indexBy: readonly IndexDefinition[] = [...DEFAULT_FDS_INDEX_DEFINITIONS]
+        indexConfigs: readonly IndexConfig[] = DEFAULT_INDEX_CONFIGS_LIST
     ) {
         super();
-        this.indexManager = new IndexManager(indexBy);
+        this.indexManager = new IndexManager(indexConfigs);
         this.queryOptimizer = new QueryOptimizer(this.indexManager);
     }
 
@@ -428,7 +477,7 @@ export class InMemoryStore extends Store {
 
     *find<T extends Entity<EntityData>>(filter: SearchFilter = {}): Generator<T> {
         // console.log('InMemoryStore.find called with filter:', filter);
-        const { id, type, parentId, ...otherFilters } = filter;
+        const { type, ...otherFilters } = filter;
 
         // Try to find the best index for this query
         const queryPlan = this.queryOptimizer.findBestIndex(filter);

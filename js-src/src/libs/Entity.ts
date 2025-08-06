@@ -1,7 +1,7 @@
 import { Change, ChangeType } from "../Change";
 import { fusion } from "../index";
 import { getLogger } from "../logging";
-import { createId } from "../util";
+import { createId } from "../base-util";
 
 const log = getLogger('entity.ts');
 

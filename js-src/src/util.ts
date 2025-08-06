@@ -1,108 +1,44 @@
-export type Callable = (...args: any[]) => any;
+import { createId } from "./base-util";
 
-let objectCounter = 0;
-let _fakeTime: Date | null = null;  // For testing purposes
-let _deterministicIds = false;
 
-// export function get_counted_id(obj) {
-//   if (typeof obj.__uniqueid === "undefined") {
-//     obj.__uniqueid = ++objectCounter;
-//   }
-//   return obj.__uniqueid;
-// }
-
-const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
-
-interface ICryptoModule {
-    subtle: SubtleCrypto;
-}
-
-let _cryptoModule: ICryptoModule;
-
-if (typeof window !== 'undefined') {
-    // Browser main thread environment
-    _cryptoModule = window.crypto;
-} else if (typeof self !== 'undefined' && (self as any).crypto) {
-    // Service worker environment - use self.crypto
-    _cryptoModule = (self as any).crypto;
-} else {
-    // Node.js test environment - use dynamic require for crypto module
-    // eslint-disable-next-line
-    _cryptoModule = require('crypto').webcrypto;
-}
-
-export function cryptoModule(): SubtleCrypto {
-    return _cryptoModule.subtle;
-}
-
-export function createId(length: number = 8): string {
-    const idLength = 8;
-    let id = '';
-
-    if (typeof window !== 'undefined' && window.crypto && !_deterministicIds) {
-        const randomBytes = new Uint8Array(idLength);
-        window.crypto.getRandomValues(randomBytes);
-
-        for (let i = 0; i < idLength; i++) {
-            id += alphabet[randomBytes[i] % alphabet.length];
-        }
-    } else { // in testing or
-        for (let i = 0; i < 8; i++) {
-            const index = Math.floor(Math.random() * alphabet.length);
-            id += alphabet.charAt(index);
-        }
-    }
-
-    return id;
-}
-
-export function currentTime(): Date {
-    if (_fakeTime) {
-        return _fakeTime;
-    }
-
-    return new Date();
-}
-
-export function timestamp(dt: Date, microseconds: boolean = false): string {
-    if (microseconds) {
-        return dt.toISOString();
-    } else {
-        return dt.toISOString().split('.')[0] + 'Z';
-    }
-}
-
+const MAX_CHECKS = 100;
 /**
- * Generate a filename-appropriate timestamp with microseconds for unique image filenames.
- * Format: YYYY-MM-DD_HH-MM-SS_microseconds
- * Example: 2025-07-04_16-50-30_123456
+ * Generates a unique path by appending integer suffixes or a random ID if needed
+ * @param basePath The original path to make unique
+ * @param pathExistsChecker Function that returns true if a path already exists
+ * @returns A unique path
  */
-export function generateFilenameTimestamp(): string {
-    const now = new Date();
+export function generateUniquePathWithSuffix(basePath: string, pathExistsChecker: (path: string) => boolean, max_checks: number = MAX_CHECKS): string {
+    let path = basePath;
+    let counter = 1;
 
-    // Get date components
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
+    // Check if a path already exists
+    while (pathExistsChecker(path)) {
+        if (counter > max_checks) {
+            log.warning(`Exceeded MAX_CHECKS (${max_checks}) for path uniqueness, using random ID for path: ${basePath}`);
 
-    // Get time components
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    const seconds = String(now.getSeconds()).padStart(2, '0');
+            // Extract name and extension from path
+            const lastDotIndex = basePath.lastIndexOf('.');
+            const name = lastDotIndex !== -1 ? basePath.substring(0, lastDotIndex) : basePath;
+            const extension = lastDotIndex !== -1 ? basePath.substring(lastDotIndex) : '';
 
-    // Get microseconds (milliseconds * 1000 + random component for uniqueness)
-    const milliseconds = now.getMilliseconds();
-    const microseconds = String(milliseconds * 1000 + Math.floor(Math.random() * 1000)).padStart(6, '0');
+            const randomId = createId();
+            path = `${name}_${randomId}${extension}`;
 
-    return `${year}-${month}-${day}_${hours}-${minutes}-${seconds}_${microseconds}`;
+            if (counter > max_checks + 1) {
+                log.error(`Unable to generate a unique path after ${max_checks} checks, using random ID: ${path}`);
+            }
+        }
+
+        // Extract name and extension from path
+        const lastDotIndex = basePath.lastIndexOf('.');
+        const name = lastDotIndex !== -1 ? basePath.substring(0, lastDotIndex) : basePath;
+        const extension = lastDotIndex !== -1 ? basePath.substring(lastDotIndex) : '';
+
+        // Add counter to path
+        path = `${name}_${counter}${extension}`;
+        counter++;
+    }
+
+    return path;
 }
-
-export function degreesToRadians(degrees: number) {
-    return degrees * (Math.PI / 180);
-}
-
-// export function isRunningInDesktopApp(): boolean {
-//   // Type assertion to inform TypeScript about electronAPI on the window object
-//   const desktopWindow = window as any;
-//   return desktopWindow.curatorDesktopAPI !== undefined;
-// }

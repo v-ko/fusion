@@ -1,4 +1,4 @@
-import { createId } from "./util";
+import { createId } from "./base-util";
 
 let LOG_LEVEL = 0;  // 0: info, 1: warning, 2: error
 

@@ -1,6 +1,22 @@
 import { Entity, EntityData, entityType } from "../libs/Entity";
 import { Delta } from "./Delta";
-import { InMemoryStore as InMemoryStore } from "./InMemoryStore";
+import { InMemoryStore, IndexConfig, ENTITY_TYPE_INDEX_KEY } from "./InMemoryStore";
+
+const indexConfigs: readonly IndexConfig[] = [
+    {
+        fields: [{ indexKey: "id" }],
+        isUnique: true,
+        name: "id"
+    },
+    {
+        fields: [{
+            indexKey: ENTITY_TYPE_INDEX_KEY,
+            allowedTypes: ['Page', 'Note']
+        }],
+        isUnique: false,
+        name: 'by_class_name'
+    }
+];
 
 interface PageData extends EntityData {
     name: string;
@@ -38,10 +54,10 @@ class Note extends Entity<NoteData> {
 
 
 describe("InMemoryStore", () => {
-    let repo = new InMemoryStore();
+    let store = new InMemoryStore(indexConfigs);
 
     beforeEach(() => {
-        repo = new InMemoryStore();
+        store = new InMemoryStore(indexConfigs);
     });
 
     test("Entity CRUD operations", () => {
@@ -51,22 +67,22 @@ describe("InMemoryStore", () => {
         })
 
         // Test insert
-        let changeCreate = repo.insertOne(entity);
+        let changeCreate = store.insertOne(entity);
         expect(changeCreate).toBeDefined();
 
-        let all_entities = [...repo.find()];
+        let all_entities = [...store.find()];
         expect(all_entities.length).toBe(1);
 
         // Test update
         entity.name = "456";
-        let changeUpdate = repo.updateOne(entity);
+        let changeUpdate = store.updateOne(entity);
         expect(changeUpdate).toBeDefined();
-        expect([...repo.find()].length).toBe(1);
+        expect([...store.find()].length).toBe(1);
 
         // Test delete
-        let changeDelete = repo.removeOne(entity);
+        let changeDelete = store.removeOne(entity);
         expect(changeDelete).toBeDefined();
-        expect([...repo.find()].length).toBe(0);
+        expect([...store.find()].length).toBe(0);
     });
 
     // Test find by id, parent-id, type and prop
@@ -82,26 +98,26 @@ describe("InMemoryStore", () => {
             pageId: "123"
         });
 
-        repo.insertOne(page);
-        repo.insertOne(note);
+        store.insertOne(page);
+        store.insertOne(note);
 
         // Test find by id
-        let foundPage = repo.findOne({ id: "123" });
+        let foundPage = store.findOne({ id: "123" });
         expect(foundPage).toEqual(page);
 
         // Test find by parent-id
-        let foundNote = repo.findOne({ parentId: "123" });
+        let foundNote = store.findOne({ parentId: "123" });
         expect(foundNote).toEqual(note);
 
         // Test find by type
-        let foundPage2 = repo.findOne({ type: Page });
+        let foundPage2 = store.findOne({ type: Page });
         expect(foundPage2).toEqual(page);
 
-        let foundNote2 = repo.findOne({ type: Note });
+        let foundNote2 = store.findOne({ type: Note });
         expect(foundNote2).toEqual(note);
 
         // Test find by prop
-        let foundNote3 = repo.findOne({ name: "Test Note" });
+        let foundNote3 = store.findOne({ name: "Test Note" });
         expect(foundNote3).toEqual(note);
     });
 
@@ -126,26 +142,26 @@ describe("InMemoryStore", () => {
         });
 
         let changes = [
-            repo.insertOne(page),
-            repo.insertOne(note1),
-            repo.insertOne(note2),
+            store.insertOne(page),
+            store.insertOne(note1),
+            store.insertOne(note2),
         ]
 
         note2._data.name = "Updated Note 2";
 
         // Check that the repo has copied the entity (so that alterations cannot
         // leak over the repo interface)
-        let repoNote2 = repo.findOne({ id: "789" });
+        let repoNote2 = store.findOne({ id: "789" });
         expect((repoNote2 as Note)._data.name).toBe("Test Note 2");
 
         let delta = Delta.fromChanges(changes);
 
-        let changeDelete = repo.removeOne(note1);
+        let changeDelete = store.removeOne(note1);
         changes.push(changeDelete);
 
         delta = Delta.fromChanges(changes);
 
-        let changeUpdate = repo.updateOne(note2);
+        let changeUpdate = store.updateOne(note2);
         changes.push(changeUpdate);
 
         delta = Delta.fromChanges(changes);
@@ -153,10 +169,10 @@ describe("InMemoryStore", () => {
 
         let reverseChanges = delta.changes();
         for (let change of reverseChanges) {
-            repo.applyChange(change);
+            store.applyChange(change);
         }
 
-        let all_entities = [...repo.find()];
+        let all_entities = [...store.find()];
         expect(all_entities.length).toBe(0);
     });
 });

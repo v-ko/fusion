@@ -1,7 +1,7 @@
 import { ChangeType } from "../Change";
 import { Store } from "./BaseStore";
 import { dumpToDict } from '../libs/Entity';
-import { cryptoModule } from "../util";
+import { cryptoModule } from "../base-util";
 import { getLogger } from "../logging";
 import { Delta } from "./Delta";
 

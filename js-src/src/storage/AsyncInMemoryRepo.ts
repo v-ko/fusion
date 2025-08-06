@@ -1,8 +1,8 @@
 import { Commit } from "./Commit";
 import { HashTree, buildHashTree, updateHashTree } from "./HashTree";
-import { createId } from "../util";
+import { createId } from "../base-util";
 import { CommitGraph } from "./CommitGraph";
-import { InMemoryStore, IndexDefinition } from "./InMemoryStore";
+import { InMemoryStore, IndexConfig } from "./InMemoryStore";
 import { BaseAsyncRepository, ResetFilter } from "./BaseRepository";
 import { Delta, DeltaData, squishDeltas } from "./Delta";
 import { getLogger } from "../logging";
@@ -18,9 +18,9 @@ export class AsyncInMemoryRepository extends BaseAsyncRepository {
     private _hashTree: HashTree | null = null;
     _currentBranch: string | null = null;
 
-    constructor(indexBy?: readonly IndexDefinition[]) {
+    constructor(indexConfigs?: IndexConfig[]) {
         super();
-        this._headStore = new InMemoryStore(indexBy);
+        this._headStore = new InMemoryStore(indexConfigs);
     }
 
     async init(localBranchName: string) {
@@ -29,8 +29,8 @@ export class AsyncInMemoryRepository extends BaseAsyncRepository {
         this._hashTree = await buildHashTree(this.headStore)
     }
 
-    static async initFromRemote(repository: BaseAsyncRepository, localBranchName: string, indexBy?: readonly IndexDefinition[]): Promise<AsyncInMemoryRepository> {
-        let repo = new AsyncInMemoryRepository(indexBy)
+    static async initFromRemote(repository: BaseAsyncRepository, localBranchName: string, indexConfigs?: IndexConfig[]): Promise<AsyncInMemoryRepository> {
+        let repo = new AsyncInMemoryRepository(indexConfigs)
         await repo.init(localBranchName)
         await repo.pull(repository)
         return repo
