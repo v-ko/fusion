@@ -7,6 +7,7 @@ const log = getLogger('InMemoryMediaStoreAdapter');
 
 export class InMemoryMediaStoreAdapter implements MediaStoreAdapter {
   private _media: Map<string, Blob> = new Map();
+  private _trash: Map<string, {blob: Blob, timeDeleted: number}> = new Map();
 
 
   private _getUniqueUri(path: string): string {
@@ -35,7 +36,7 @@ export class InMemoryMediaStoreAdapter implements MediaStoreAdapter {
     return `project:/media${normalizedPath}`;
   }
 
-  async addMedia(blob: Blob, path: string): Promise<MediaItemData> {
+  async addMedia(blob: Blob, path: string, parentId: string): Promise<MediaItemData> {
     // Generate a unique URI based on the path
     const uri = this._getUniqueUri(path);
 
@@ -68,7 +69,8 @@ export class InMemoryMediaStoreAdapter implements MediaStoreAdapter {
       height,
       mimeType: blob.type,
       size: blob.size,
-      timeDeleted: undefined
+      timeDeleted: undefined,
+      parentId: parentId
     });
 
     return mediaItem.data(); // Return the data instead of the MediaItem instance
@@ -84,17 +86,31 @@ export class InMemoryMediaStoreAdapter implements MediaStoreAdapter {
     return blob;
   }
 
-  async removeMedia(mediaItem: MediaItem): Promise<void> {
-    // Mark the mediaItem as deleted
-    mediaItem.markDeleted();
-
-    if (!this._media.has(mediaItem.path)) {
-      log.warning(`Attempted to remove non-existent media: ${mediaItem.path}`);
-      return;
+  async removeMedia(mediaId: string, contentHash: string): Promise<void> {
+    if (!this._media.has(mediaId)) {
+        log.warning(`Attempted to remove non-existent media: ${mediaId}`);
+        return;
     }
 
-    this._media.delete(mediaItem.path);
-    log.info(`Removed media: ${mediaItem.path}`);
+    this._media.delete(mediaId);
+    log.info(`Removed media: ${mediaId}`);
+  }
+
+  async moveMediaToTrash(mediaId: string, contentHash: string): Promise<void> {
+    const blob = this._media.get(mediaId);
+    if (!blob) {
+        log.warning(`Attempted to trash non-existent media: ${mediaId}`);
+        return;
+    }
+    this._media.delete(mediaId);
+    this._trash.set(mediaId, {blob: blob, timeDeleted: Date.now()});
+    log.info(`Moved media to trash: ${mediaId}`);
+  }
+
+  async cleanTrash(): Promise<void> {
+    const trashedCount = this._trash.size;
+    this._trash.clear();
+    log.info(`Cleaned ${trashedCount} items from in-memory trash.`);
   }
 
 }

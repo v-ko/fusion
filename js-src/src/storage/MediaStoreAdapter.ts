@@ -12,7 +12,9 @@ export class MediaItemExistsInPathError extends Error {
 }
 
 export interface MediaStoreAdapter {
-  addMedia: (blob: Blob, path: string) => Promise<MediaItemData>;
+  addMedia: (blob: Blob, path: string, parentId: string) => Promise<MediaItemData>;
   getMedia: (mediaId: string, mediaHash: string) => Promise<Blob>;
-  removeMedia: (mediaItem: MediaItem) => Promise<void>;
+  removeMedia: (mediaId: string, contentHash: string) => Promise<void>;
+  moveMediaToTrash: (mediaId: string, contentHash: string) => Promise<void>;
+  cleanTrash: () => Promise<void>;
 }

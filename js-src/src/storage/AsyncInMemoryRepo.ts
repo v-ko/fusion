@@ -18,7 +18,7 @@ export class AsyncInMemoryRepository extends BaseAsyncRepository {
     private _hashTree: HashTree | null = null;
     _currentBranch: string | null = null;
 
-    constructor(indexConfigs?: IndexConfig[]) {
+    constructor(indexConfigs?: readonly IndexConfig[]) {
         super();
         this._headStore = new InMemoryStore(indexConfigs);
     }
@@ -29,7 +29,7 @@ export class AsyncInMemoryRepository extends BaseAsyncRepository {
         this._hashTree = await buildHashTree(this.headStore)
     }
 
-    static async initFromRemote(repository: BaseAsyncRepository, localBranchName: string, indexConfigs?: IndexConfig[]): Promise<AsyncInMemoryRepository> {
+    static async initFromRemote(repository: BaseAsyncRepository, localBranchName: string, indexConfigs?: readonly IndexConfig[]): Promise<AsyncInMemoryRepository> {
         let repo = new AsyncInMemoryRepository(indexConfigs)
         await repo.init(localBranchName)
         await repo.pull(repository)

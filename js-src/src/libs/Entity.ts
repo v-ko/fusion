@@ -78,6 +78,7 @@ export function loadFromDict<T extends SerializedEntityData>(entityDict: T): Ent
 // Entity definition
 export interface EntityData {
     id: string;  // Allows for composite ids
+    _data?: never;  // Breaks the scructural compatability between Entity and EntityData which otherwise masks passing the wrong object type
 }
 
 
@@ -88,6 +89,10 @@ export abstract class Entity<T extends EntityData> {
     _data: T;
 
     constructor(data: T) {
+        // if data has _ data field throw error
+        if (data['_data']) {
+            throw new Error('Entity data cannot have _ field');
+        }
         this._data = data;
     }
 

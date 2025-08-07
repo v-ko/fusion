@@ -36,10 +36,10 @@ export interface StorageServiceActualInterface {
     _storageOperationRequest: (request: StorageOperationRequest) => Promise<void>;
 
     // Media operations
-    addMedia: (projectId: string, blob: Blob, path: string) => Promise<MediaItemData>;
+    addMedia: (projectId: string, blob: Blob, path: string, parentId: string) => Promise<MediaItemData>;
     getMedia: (projectId: string, mediaId: string, mediaHash: string) => Promise<Blob>;
     removeMedia: (projectId: string, mediaId: string, mediaHash: string) => Promise<void>;
-    moveMediaItemToTrash: (projectId: string, mediaId: string, mediaHash: string) => Promise<void>;
+    moveMediaToTrash: (projectId: string, mediaId: string, mediaHash: string) => Promise<void>;
 
     test(): boolean;
 }
@@ -255,8 +255,8 @@ export class StorageService {
     }
 
     // Media operations
-    async addMedia(projectId: string, blob: Blob, path: string): Promise<MediaItemData> {
-        return this.service.addMedia(projectId, blob, path);
+    async addMedia(projectId: string, blob: Blob, path: string, parentId: string): Promise<MediaItemData> {
+        return this.service.addMedia(projectId, blob, path, parentId);
     }
 
     async getMedia(projectId: string, mediaId: string, mediaHash: string): Promise<Blob> {
@@ -267,8 +267,8 @@ export class StorageService {
         return this.service.removeMedia(projectId, mediaId, mediaHash);
     }
 
-    async moveMediaItemToTrash(projectId: string, mediaId: string, mediaHash: string): Promise<void> {
-        return this.service.moveMediaItemToTrash(projectId, mediaId, mediaHash);
+    async moveMediaToTrash(projectId: string, mediaId: string, mediaHash: string): Promise<void> {
+        return this.service.moveMediaToTrash(projectId, mediaId, mediaHash);
     }
 
 
@@ -294,8 +294,6 @@ export class StorageServiceActual implements StorageServiceActualInterface {
     private _storageOperationReceiver: BroadcastChannel;
     private _storageOperationQueue: StorageOperationRequest[] = [];
 
-    // Media deletion tracking - sorted by timeDeleted for efficient cleanup
-    private deletedMediaItems: { [projectId: string]: MediaItem[] } = {}; // Per projectId, sorted by timeDeleted
     private mediaRequestParser?: MediaRequestParser;
 
     constructor(mediaRequestParser?: MediaRequestParser) {
@@ -422,15 +420,10 @@ export class StorageServiceActual implements StorageServiceActualInterface {
 
             this.repoRefCounts[projectId] = 0;
 
-            // Initialize deleted media items tracking for this project
-            if (!this.deletedMediaItems[projectId]) {
-                this.deletedMediaItems[projectId] = [];
-            }
-
             log.info('Initialized repo manager for project', projectId);
 
             // Perform cleanup of old deleted media items on startup
-            await this.cleanupExpiredTrashItems(projectId);
+            await repoManager.mediaStore.cleanTrash();
         } else { // Repo already loaded
             log.info('Repo already loaded', projectId);
             log.info('Loaded repo manager for project', JSON.stringify(repoManager.config));
@@ -464,7 +457,6 @@ export class StorageServiceActual implements StorageServiceActualInterface {
             let repoManager = this.repoManagers[projectId];
             delete this.repoManagers[projectId];
             delete this.repoRefCounts[projectId];
-            delete this.deletedMediaItems[projectId];
             repoManager.shutdown();
             log.info('Unloaded repo for project', projectId);
         }
@@ -598,7 +590,7 @@ export class StorageServiceActual implements StorageServiceActualInterface {
         return repoManager.inMemoryRepo.headStore.data();
     }
     // Media operations
-    async addMedia(projectId: string, blob: Blob, path: string): Promise<MediaItemData> {
+    async addMedia(projectId: string, blob: Blob, path: string, parentId: string): Promise<MediaItemData> {
         let repoManager = this.repoManagers[projectId];
         if (!repoManager) {
             throw new Error("Repo not loaded");
@@ -611,7 +603,7 @@ export class StorageServiceActual implements StorageServiceActualInterface {
         });
 
         log.info(`Adding media to project ${projectId} with unique path: ${uniquePath}`);
-        return repoManager.mediaStore.addMedia(blob, uniquePath); // Use the unique path
+        return repoManager.mediaStore.addMedia(blob, uniquePath, parentId); // Use the unique path
     }
 
     async getMedia(projectId: string, mediaId: string, mediaHash: string): Promise<Blob> {
@@ -628,78 +620,14 @@ export class StorageServiceActual implements StorageServiceActualInterface {
             throw new Error("Repo not loaded");
         }
 
-        // Create a MediaItem instance for the adapter
-        const mediaItem = new MediaItem({ id: mediaId, path: '', contentHash: mediaHash, width: 0, height: 0, mimeType: '', size: 0 });
-        return repoManager.mediaStore.removeMedia(mediaItem);
+        return repoManager.mediaStore.removeMedia(mediaId, mediaHash);
     }
 
-    async moveMediaItemToTrash(projectId: string, mediaId: string, mediaHash: string): Promise<void> {
+    async moveMediaToTrash(projectId: string, mediaId: string, mediaHash: string): Promise<void> {
         let repoManager = this.repoManagers[projectId];
         if (!repoManager) {
             throw new Error("Repo not loaded");
         }
-
-        // Create a MediaItem instance and mark it as deleted
-        const mediaItem = new MediaItem({ id: mediaId, path: '', contentHash: mediaHash, width: 0, height: 0, mimeType: '', size: 0 });
-        mediaItem.markDeleted();
-
-        // Add to deleted media items index
-        if (!this.deletedMediaItems[projectId]) {
-            this.deletedMediaItems[projectId] = [];
-        }
-
-        const deletedItems = this.deletedMediaItems[projectId];
-        deletedItems.push(mediaItem);
-
-        // Sort by timeDeleted to maintain order for efficient cleanup
-        deletedItems.sort((a, b) => a.timeDeleted! - b.timeDeleted!);
-
-        log.info(`Moved media item to trash: ${mediaItem.path}, timeDeleted: ${mediaItem.timeDeleted}`);
-    }
-
-    /**
-     * Clean up deleted media items older than the specified retention period
-     * Default retention period is 30 days (30 * 24 * 60 * 60 * 1000 ms)
-     */
-    private async cleanupExpiredTrashItems(projectId: string, retentionPeriodMs: number = 30 * 24 * 60 * 60 * 1000): Promise<void> {
-        const deletedItems = this.deletedMediaItems[projectId];
-        if (!deletedItems || deletedItems.length === 0) {
-            return;
-        }
-
-        const cutoffTime = Date.now() - retentionPeriodMs;
-        let itemsToRemove = 0;
-
-        // Since the array is sorted by timeDeleted, we can find the cutoff point efficiently
-        for (let i = 0; i < deletedItems.length; i++) {
-            if (deletedItems[i].timeDeleted! > cutoffTime) {
-                break;
-            }
-            itemsToRemove++;
-        }
-
-        if (itemsToRemove === 0) {
-            log.info(`No deleted media items to clean up for project ${projectId}`);
-            return;
-        }
-
-        const repoManager = this.repoManagers[projectId];
-        if (!repoManager) {
-            log.warning(`Repo not loaded for project ${projectId}, skipping cleanup`);
-            return;
-        }
-
-        // Remove the expired items from storage
-        const itemsToDelete = deletedItems.splice(0, itemsToRemove);
-        for (const item of itemsToDelete) {
-            try {
-                await repoManager.mediaStore.removeMedia(item);
-                log.info(`Permanently deleted expired media item: ${item.path}`);
-            } catch (error) {
-                log.error(`Failed to delete expired media item ${item.path}:`, error);
-            }
-        }
-
-        log.info(`Cleaned up ${itemsToDelete.length} expired deleted media items for project ${projectId}`);
+        return repoManager.mediaStore.moveMediaToTrash(mediaId, mediaHash);
     }
 }

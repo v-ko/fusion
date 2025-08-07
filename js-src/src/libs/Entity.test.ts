@@ -5,7 +5,7 @@ interface IDummyEntity extends EntityData {
 }
 
 @entityType('DummyEntity')
-class DummyEntity extends Entity<IDummyEntity> implements IDummyEntity {
+class DummyEntity extends Entity<IDummyEntity> {
     get parentId(): string {
         return '';
     }

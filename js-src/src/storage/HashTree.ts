@@ -419,7 +419,7 @@ export async function updateHashTree(tree: HashTree, store: Store, delta: Delta)
                 throw Error("Cannot update a node that doesn't exist");
             }
             if (entity === undefined) {
-                throw Error("Entity not found for the given change");
+                throw Error(`Entity not found for the given change ${change.entityId}`);
             }
             const data = getEntityDataString(entity);
             node.entityDataHash = await hash(data);
@@ -427,7 +427,7 @@ export async function updateHashTree(tree: HashTree, store: Store, delta: Delta)
 
         } else if (changeType === ChangeType.CREATE) {
             if (entity === undefined) {
-                throw Error("Entity not found for the given change");
+                throw Error(`Entity not found for the given change ${change.entityId}`);
             }
             const data = getEntityDataString(entity);
             let hashString = await hash(data);

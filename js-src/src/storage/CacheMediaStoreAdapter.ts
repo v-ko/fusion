@@ -41,7 +41,7 @@ export class CacheMediaStoreAdapter implements MediaStoreAdapter {
     return `media/item/${id}#${contentHash}`;
   }
 
-  async addMedia(blob: Blob, path: string): Promise<MediaItemData> {
+  async addMedia(blob: Blob, path: string, parentId: string): Promise<MediaItemData> {
     log.info(`Adding media to cache: ${path} (${blob.type}, ${blob.size} bytes)`);
     // Generate content hash first
     const contentHash = (await generateContentHash(blob)).slice(0, 32); // Cut down the sha-256 hash to 32 characters
@@ -68,7 +68,8 @@ export class CacheMediaStoreAdapter implements MediaStoreAdapter {
       height,
       mimeType: blob.type,
       size: blob.size,
-      timeDeleted: undefined
+      timeDeleted: undefined,
+      parentId: parentId
     });
 
     // Create the cache key using MediaItem ID
@@ -102,13 +103,8 @@ export class CacheMediaStoreAdapter implements MediaStoreAdapter {
     return await response.blob();
   }
 
-  async removeMedia(mediaItem: MediaItem): Promise<void> {
-    // Mark the mediaItem as deleted
-    mediaItem.markDeleted();
-
-    // Create cache key from MediaItem ID and contentHash
-    const cacheKey = this._getCacheKey(mediaItem.id, mediaItem.contentHash);
-
+  async removeMedia(mediaId: string, contentHash: string): Promise<void> {
+    const cacheKey = this._getCacheKey(mediaId, contentHash);
     const deleted = await this.cache.delete(cacheKey);
 
     if (deleted) {
@@ -116,6 +112,35 @@ export class CacheMediaStoreAdapter implements MediaStoreAdapter {
     } else {
       log.warning(`Media not found for deletion: ${cacheKey}`);
     }
+  }
+
+  async moveMediaToTrash(mediaId: string, contentHash: string): Promise<void> {
+    const cacheKey = this._getCacheKey(mediaId, contentHash);
+    const request = new Request(cacheKey);
+    const response = await this.cache.match(request);
+
+    if (!response) {
+      log.warning(`Media not found for trashing: ${cacheKey}`);
+      return;
+    }
+
+    const blob = await response.blob();
+    const newHeaders = new Headers(response.headers);
+    newHeaders.set('X-Delete-After', (Date.now() + 7 * 24 * 60 * 60 * 1000).toString());
+
+    const newResponse = new Response(blob, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: newHeaders
+    });
+
+    await this.cache.put(request, newResponse);
+    log.info(`Marked media for trashing in cache: ${cacheKey}`);
+  }
+
+  async cleanTrash(): Promise<void> {
+    log.info('Cache API media trash is cleaned automatically by the browser based on expiry headers.');
+    // Potentially, we could iterate and count items, but it's not necessary.
   }
 
 

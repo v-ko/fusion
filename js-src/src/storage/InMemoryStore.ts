@@ -513,7 +513,7 @@ export class InMemoryStore extends Store {
 
             // Type filter (if not already handled by index)
             if (type && !(candidate instanceof type)) {
-                console.log('Type filter failed for candidate:', (candidate as any).constructor.name, 'expected:', type.name);
+                // console.log('Type filter failed for candidate:', (candidate as any).constructor.name, 'expected:', type.name);
                 continue;
             }
 

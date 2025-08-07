@@ -1,5 +1,7 @@
 import { createId } from "./base-util";
+import { getLogger } from "./logging";
 
+let log = getLogger('util');
 
 const MAX_CHECKS = 100;
 /**
