@@ -348,7 +348,7 @@ export class StorageServiceActual implements StorageServiceActualInterface {
         const fetchEvent = event as FetchEvent;
         const url = fetchEvent.request.url;
 
-        log.info(`Intercepting fetch request for URL: ${url}`);
+        // log.info(`Intercepting fetch request for URL: ${url}`);
 
         // Parse the URL using the media request handler
         const mediaRequest = this.mediaRequestParser!(this, url);

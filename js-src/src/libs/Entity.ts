@@ -1,5 +1,4 @@
 import { Change, ChangeType } from "../Change";
-import { fusion } from "../index";
 import { getLogger } from "../logging";
 import { createId } from "../base-util";
 
@@ -10,8 +9,13 @@ let entityLibrary: { [key: string]: typeof Entity<any> } = {};
 let _lastEntityId: number = 0
 
 
+let _reproducibleIds = false;
+export function setReproducibleIds(reproducible: boolean) {
+    _reproducibleIds = reproducible;
+}
+
 export function getEntityId(): string {
-    if (fusion.reproducibleIds) {
+    if (_reproducibleIds) {
         _lastEntityId += 1;
         return _lastEntityId.toString().padStart(8, '0');
     } else {
