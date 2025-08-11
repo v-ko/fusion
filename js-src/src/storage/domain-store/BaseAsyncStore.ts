@@ -1,7 +1,7 @@
-import { Change } from "../Change";
-import { Entity, EntityData, dumpToDict } from "../libs/Entity";
+import { Change } from "../../model/Change";
+import { Entity, EntityData, dumpToDict } from "../../model/Entity";
 import { SerializedStoreData } from "./BaseStore";
-import { Delta } from "./Delta";
+import { Delta } from "../../model/Delta";
 
 export abstract class BaseAsyncStore {
     abstract insertOne(entity: Entity<EntityData>): Promise<Change>;

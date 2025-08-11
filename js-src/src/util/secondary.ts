@@ -1,5 +1,5 @@
-import { createId } from "./base-util";
-import { getLogger } from "./logging";
+import { createId } from "./base";
+import { getLogger } from "../logging";
 
 let log = getLogger('util');
 

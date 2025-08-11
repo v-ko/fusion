@@ -1,13 +1,13 @@
 import * as Comlink from 'comlink';
 import { ProjectStorageManager, ProjectStorageConfig } from './ProjectStorageManager';
-import { SerializedStoreData } from './BaseStore';
-import { Delta, DeltaData } from './Delta';
-import { RepoUpdateData } from "./BaseRepository"
-import { createId } from '../base-util';
-import { buildHashTree } from './HashTree';
-import { MediaItem, MediaItemData } from '../libs/MediaItem';
-import { generateUniquePathWithSuffix } from "../util";
-import { getLogger } from '../logging';
+import { SerializedStoreData } from '../domain-store/BaseStore';
+import { Delta, DeltaData } from '../../model/Delta';
+import { RepoUpdateData } from "../repository/BaseRepository"
+import { createId } from '../../util/base';
+import { buildHashTree } from '../version-control/HashTree';
+import { MediaItem, MediaItemData } from '../../model/MediaItem';
+import { generateUniquePathWithSuffix } from "../../util/secondary";
+import { getLogger } from '../../logging';
 
 let log = getLogger('StorageService')
 

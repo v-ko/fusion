@@ -1,13 +1,13 @@
-import { BaseAsyncRepository } from "./BaseRepository";
-import { IndexedDBRepository } from "./IndexedDB_storageAdapter";
-import { AsyncInMemoryRepository } from "./AsyncInMemoryRepo";
+import { BaseAsyncRepository } from "../repository/BaseRepository";
+import { IndexedDBRepository } from "../repository/IndexedDB_storageAdapter";
+import { AsyncInMemoryRepository } from "../repository/AsyncInMemoryRepo";
 import { autoMergeForSync } from "./SyncUtils";
-import { MediaStoreAdapter } from "./MediaStoreAdapter";
-import { InMemoryMediaStoreAdapter } from "./InMemoryMediaStoreAdapter";
-import { CacheMediaStoreAdapter } from "./CacheMediaStoreAdapter";
-import { getLogger } from "../logging";
+import { MediaStoreAdapter } from "../media-store/MediaStoreAdapter";
+import { InMemoryMediaStoreAdapter } from "../media-store/InMemoryMediaStoreAdapter";
+import { CacheMediaStoreAdapter } from "../media-store/CacheMediaStoreAdapter";
+import { getLogger } from "../../logging";
 import { StorageServiceActual } from "./StorageService";
-import { IndexConfig } from "./InMemoryStore";
+import { IndexConfig } from "../domain-store/InMemoryStore";
 
 let log = getLogger('ProjectStorageManager');
 

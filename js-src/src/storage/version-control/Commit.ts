@@ -1,5 +1,5 @@
-import { Delta, DeltaData } from "./Delta";
-import { getLogger } from "../logging";
+import { Delta, DeltaData } from "../../model/Delta";
+import { getLogger } from "../../logging";
 
 const log = getLogger("Commit");
 

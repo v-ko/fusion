@@ -1,6 +1,6 @@
-import { Change } from "../Change";
-import { Entity, EntityData, SerializedEntityData, dumpToDict, loadFromDict } from "../libs/Entity";
-import { Delta } from "./Delta";
+import { Change } from "../../model/Change";
+import { Entity, EntityData, SerializedEntityData, dumpToDict, loadFromDict } from "../../model/Entity";
+import { Delta } from "../../model/Delta";
 
 // a searchFilter is a dict, where there can be an id, a parent_id, a type or any other property
 export interface SearchFilter {

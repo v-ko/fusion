@@ -1,4 +1,4 @@
-import { Entity, EntityData, SerializedEntityData, dumpToDict } from "./libs/Entity"
+import { Entity, EntityData, SerializedEntityData, dumpToDict } from "./Entity"
 
 export type ChangeComponent = Partial<SerializedEntityData>;
 

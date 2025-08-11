@@ -1,5 +1,5 @@
 import * as Comlink from 'comlink';
-import { getLogger } from '../logging';
+import { getLogger } from '../../logging';
 import { StorageServiceActualInterface } from './StorageService';
 
 const log = getLogger('service-worker-utils');

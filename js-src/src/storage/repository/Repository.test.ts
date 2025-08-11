@@ -1,11 +1,11 @@
 import { AsyncInMemoryRepository } from "./AsyncInMemoryRepo";
-import { InMemoryStore } from "./InMemoryStore";
-import { Entity, entityType } from "../libs/Entity";
-import type { EntityData } from "../libs/Entity";
-import { Change } from "../Change";
-import { Commit } from "./Commit";
-import { buildHashTree } from "./HashTree";
-import { Delta } from "./Delta";
+import { InMemoryStore } from "../domain-store/InMemoryStore";
+import { Entity, entityType } from "../../model/Entity";
+import type { EntityData } from "../../model/Entity";
+import { Change } from "../../model/Change";
+import { Commit } from "../version-control/Commit";
+import { buildHashTree } from "../version-control/HashTree";
+import { Delta } from "../../model/Delta";
 
 @entityType("DummyPage")
 class DummyPage extends Entity<EntityData> {

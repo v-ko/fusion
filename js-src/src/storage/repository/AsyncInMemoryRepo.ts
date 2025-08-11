@@ -1,12 +1,12 @@
-import { Commit } from "./Commit";
-import { HashTree, buildHashTree, updateHashTree } from "./HashTree";
-import { createId } from "../base-util";
-import { CommitGraph } from "./CommitGraph";
-import { InMemoryStore, IndexConfig } from "./InMemoryStore";
+import { Commit } from "../version-control/Commit";
+import { HashTree, buildHashTree, updateHashTree } from "../version-control/HashTree";
+import { createId } from "../../util/base";
+import { CommitGraph } from "../version-control/CommitGraph";
+import { InMemoryStore, IndexConfig } from "../domain-store/InMemoryStore";
 import { BaseAsyncRepository, ResetFilter } from "./BaseRepository";
-import { Delta, DeltaData, squishDeltas } from "./Delta";
-import { getLogger } from "../logging";
-import { inferRepoChangesFromGraphUpdate } from "./SyncUtils";
+import { Delta, DeltaData, squishDeltas } from "../../model/Delta";
+import { getLogger } from "../../logging";
+import { inferRepoChangesFromGraphUpdate } from "../management/SyncUtils";
 
 const log = getLogger('InMemoryRepository')
 

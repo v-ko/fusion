@@ -1,5 +1,5 @@
 import { Commit, CommitData } from "./Commit";
-import { BranchMetadata } from "./BaseRepository";
+import { BranchMetadata } from "../repository/BaseRepository";
 
 export interface CommitGraphData {
     branches: BranchMetadata[];

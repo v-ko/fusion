@@ -1,7 +1,7 @@
-import { getLogger } from "../logging";
+import { getLogger } from "../../logging";
 import { MediaStoreAdapter } from "./MediaStoreAdapter";
-import { extractImageDimensions, generateContentHash } from "../media-utils";
-import { MediaItem, MediaItemData } from "../libs/MediaItem";
+import { extractImageDimensions, generateContentHash } from "../../util/media";
+import { MediaItem, MediaItemData } from "../../model/MediaItem";
 
 const log = getLogger('InMemoryMediaStoreAdapter');
 

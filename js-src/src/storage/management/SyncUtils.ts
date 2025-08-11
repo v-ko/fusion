@@ -1,8 +1,8 @@
-import { Commit } from "./Commit";
-import { BaseAsyncRepository, InternalRepoUpdate, RepoUpdateData } from "./BaseRepository";
-import { ChangeType } from "../Change";
-import { CommitGraph } from "./CommitGraph";
-import { getLogger } from "../logging";
+import { Commit } from "../version-control/Commit";
+import { BaseAsyncRepository, InternalRepoUpdate, RepoUpdateData } from "../repository/BaseRepository";
+import { ChangeType } from "../../model/Change";
+import { CommitGraph } from "../version-control/CommitGraph";
+import { getLogger } from "../../logging";
 
 let log = getLogger('SyncUtils')
 

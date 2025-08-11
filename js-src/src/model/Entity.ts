@@ -1,6 +1,6 @@
-import { Change, ChangeType } from "../Change";
+import { Change, ChangeType } from "./Change";
 import { getLogger } from "../logging";
-import { createId } from "../base-util";
+import { createId } from "../util/base";
 
 const log = getLogger('entity.ts');
 

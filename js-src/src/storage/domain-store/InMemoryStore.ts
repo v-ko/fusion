@@ -1,7 +1,7 @@
 import { Store, SearchFilter } from "./BaseStore"
-import { Entity, EntityData, getEntityClassByName } from "../libs/Entity"
-import { Change } from "../Change"
-import { getLogger } from "../logging"
+import { Entity, EntityData, getEntityClassByName } from "../../model/Entity"
+import { Change } from "../../model/Change"
+import { getLogger } from "../../logging"
 
 const log = getLogger('InMemoryRepository')
 

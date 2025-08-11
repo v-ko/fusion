@@ -1,11 +1,11 @@
 import { BaseAsyncRepository, BranchMetadata } from "./BaseRepository";
-import { Commit, CommitData } from "./Commit";
+import { Commit, CommitData } from "../version-control/Commit";
 import { openDB, DBSchema, IDBPDatabase, deleteDB } from 'idb';
-import { DeltaData } from "./Delta";
-import { inferRepoChangesFromGraphUpdate } from "./SyncUtils";
-import { CommitGraph } from "./CommitGraph";
-import { DebugConnectionTracker, wrapDbWithTransactionDebug } from "./DebugUtils";
-import { getLogger } from "../logging";
+import { DeltaData } from "../../model/Delta";
+import { inferRepoChangesFromGraphUpdate } from "../management/SyncUtils";
+import { CommitGraph } from "../version-control/CommitGraph";
+import { DebugConnectionTracker, wrapDbWithTransactionDebug } from "../management/DebugUtils";
+import { getLogger } from "../../logging";
 
 
 let log = getLogger('IndexedDB_storageAdapter');

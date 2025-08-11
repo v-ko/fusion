@@ -1,4 +1,4 @@
-import { MediaItem, MediaItemData } from "../libs/MediaItem";
+import { MediaItem, MediaItemData } from "../../model/MediaItem";
 
 // Global cleanup parameters
 export const MAX_VERSIONS_PER_MEDIA_ITEM = 5; // Maximum versions to keep in trash per media item

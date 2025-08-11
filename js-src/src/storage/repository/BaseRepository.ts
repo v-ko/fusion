@@ -1,6 +1,6 @@
-import { getLogger } from "../logging";
-import { Commit, CommitData } from "./Commit";
-import { CommitGraph, CommitGraphData } from "./CommitGraph";
+import { getLogger } from "../../logging";
+import { Commit, CommitData } from "../version-control/Commit";
+import { CommitGraph, CommitGraphData } from "../version-control/CommitGraph";
 
 let log = getLogger('BaseRepository')
 

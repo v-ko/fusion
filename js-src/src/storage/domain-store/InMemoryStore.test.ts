@@ -1,5 +1,5 @@
-import { Entity, EntityData, entityType } from "../libs/Entity";
-import { Delta } from "./Delta";
+import { Entity, EntityData, entityType } from "../../model/Entity";
+import { Delta } from "../../model/Delta";
 import { InMemoryStore, IndexConfig, ENTITY_TYPE_INDEX_KEY } from "./InMemoryStore";
 
 const indexConfigs: readonly IndexConfig[] = [

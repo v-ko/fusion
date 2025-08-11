@@ -1,7 +1,7 @@
 import { MediaStoreAdapter } from "./MediaStoreAdapter";
-import { extractImageDimensions, generateContentHash } from "../media-utils";
-import { getLogger } from "../logging";
-import { MediaItem, MediaItemData } from "../libs/MediaItem";
+import { extractImageDimensions, generateContentHash } from "../../util/media";
+import { getLogger } from "../../logging";
+import { MediaItem, MediaItemData } from "../../model/MediaItem";
 
 const log = getLogger('CacheMediaStoreAdapter');
 

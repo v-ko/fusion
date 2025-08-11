@@ -1,9 +1,9 @@
-import { ChangeType } from "../Change";
-import { Store } from "./BaseStore";
-import { dumpToDict } from '../libs/Entity';
-import { cryptoModule } from "../base-util";
-import { getLogger } from "../logging";
-import { Delta } from "./Delta";
+import { ChangeType } from "../../model/Change";
+import { Store } from "../domain-store/BaseStore";
+import { dumpToDict } from '../../model/Entity';
+import { cryptoModule } from "../../util/base";
+import { getLogger } from "../../logging";
+import { Delta } from "../../model/Delta";
 
 const log = getLogger('HashTree')
 

@@ -1,4 +1,4 @@
-import { Change, ChangeData, ChangeType } from "../Change";
+import { Change, ChangeData, ChangeType } from "./Change";
 import { getLogger } from "../logging";
 
 let log = getLogger('Delta')
