@@ -39,9 +39,20 @@ function processMethod(descriptor: PropertyDescriptor, name: string, issuer: str
 
         // Call the original method
         let result: any;
+        let exception: any = null;
         runInAction(() => {
-            result = originalMethod.apply(this, args);
+            try{
+                result = originalMethod.apply(this, args);
+            } catch (e){
+                log.error(`Error in action ${funcName}`, e);
+                exception = e;
+            }
         });
+        if (exception) {
+            // If an exception was thrown, set the action state to failed
+            actionState.runState = ActionRunStates.FAILED;
+        }
+
 
         // Complete the action state
         actionState = _actionCallStack.pop()!;
@@ -50,6 +61,11 @@ function processMethod(descriptor: PropertyDescriptor, name: string, issuer: str
         if (_actionCallStack.length === 0) {
             // Call the root action hooks
             _rootActionCompletedHooks.forEach(hook => hook(actionState));
+        }
+
+        if (exception) {
+            // If an exception was thrown, rethrow it
+            throw exception;
         }
 
         return result;
