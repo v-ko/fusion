@@ -1,5 +1,5 @@
+import { BranchMetadata } from "../repository/StorageAdapter";
 import { Commit, CommitData } from "./Commit";
-import { BranchMetadata } from "../repository/BaseRepository";
 
 export interface CommitGraphData {
     branches: BranchMetadata[];
@@ -17,7 +17,7 @@ export class CommitGraph {
 
     static fromData(data: CommitGraphData): CommitGraph { // , localBranchName: string
         let sg = new CommitGraph();
-        sg._branches = data.branches;
+        sg._branches = data.branches
 
         // Create commit objects
         for (let commitData of data.commits) {
@@ -176,5 +176,9 @@ export class CommitGraph {
     commit(commitId: string): Commit | undefined {
         let commit = this._commitsById.get(commitId);
         return commit;
+    }
+    clear() {
+        this._branches = [];
+        this._commitsById.clear();
     }
 }

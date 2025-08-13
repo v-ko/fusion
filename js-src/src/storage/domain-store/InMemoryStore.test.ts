@@ -1,57 +1,6 @@
-import { Entity, EntityData, entityType } from "../../model/Entity";
 import { Delta } from "../../model/Delta";
-import { InMemoryStore, IndexConfig, ENTITY_TYPE_INDEX_KEY } from "./InMemoryStore";
-
-const indexConfigs: readonly IndexConfig[] = [
-    {
-        fields: [{ indexKey: "id" }],
-        isUnique: true,
-        name: "id"
-    },
-    {
-        fields: [{
-            indexKey: ENTITY_TYPE_INDEX_KEY,
-            allowedTypes: ['Page', 'Note']
-        }],
-        isUnique: false,
-        name: 'by_class_name'
-    }
-];
-
-interface PageData extends EntityData {
-    name: string;
-}
-
-// mock Page entity subclass
-@entityType("Page")
-class Page extends Entity<PageData> {
-    name: string;
-
-    constructor(data: any) {
-        super(data);
-        this.name = data.name;
-    }
-    get parentId(): string {
-        return "";
-    }
-}
-
-interface NoteData extends EntityData {
-    name: string;
-    pageId: string;
-}
-
-// mock Note entity subclass
-@entityType("Note")
-class Note extends Entity<NoteData> {
-    constructor(data: any) {
-        super(data);
-    }
-    get parentId(): string {
-        return this._data.pageId;
-    }
-}
-
+import { InMemoryStore } from "./InMemoryStore";
+import { indexConfigs, Page, Note } from "fusion/storage/test-utils";
 
 describe("InMemoryStore", () => {
     let store = new InMemoryStore(indexConfigs);

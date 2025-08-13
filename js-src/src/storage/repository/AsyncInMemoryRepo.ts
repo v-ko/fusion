@@ -6,7 +6,7 @@ import { InMemoryStore, IndexConfig } from "../domain-store/InMemoryStore";
 import { BaseAsyncRepository, ResetFilter } from "./BaseRepository";
 import { Delta, DeltaData, squishDeltas } from "../../model/Delta";
 import { getLogger } from "../../logging";
-import { inferRepoChangesFromGraphUpdate } from "../management/SyncUtils";
+import { inferRepoChangesFromGraphs } from "../management/SyncUtils";
 
 const log = getLogger('InMemoryRepository')
 
@@ -185,7 +185,7 @@ export class AsyncInMemoryRepository extends BaseAsyncRepository {
         // fetch the new ones
         const localGraph = this.commitGraph
 
-        let repoChanges = inferRepoChangesFromGraphUpdate(localGraph, remoteGraph, newCommits)
+        let repoChanges = inferRepoChangesFromGraphs(localGraph, remoteGraph, newCommits)
         // log.info('[_checkAndApplyUpdate] Repo changes', repoChanges)
         let {
             addedCommits,

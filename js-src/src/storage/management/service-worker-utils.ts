@@ -9,9 +9,8 @@ declare const self: ServiceWorkerGlobalScope;
 export function setupServiceWorker(storageService: StorageServiceActualInterface) {
     // Configure the service worker to update immediately and claim clients upon activation
     self.addEventListener('install', event => {
-        // Skip waiting to activate the service worker immediately
         log.info('Service worker installed');
-        event.waitUntil(self.skipWaiting());
+        // We are not calling skipWaiting() here anymore. The client will decide when to activate the new SW.
     });
 
     self.addEventListener('activate', event => {
@@ -24,12 +23,19 @@ export function setupServiceWorker(storageService: StorageServiceActualInterface
     self.addEventListener("message", (event: ExtendableMessageEvent) => {
         log.info('Service worker received message:', event.data);
 
+        const { type } = event.data || {};
+        if (type === 'SKIP_WAITING') {
+            self.skipWaiting().catch(err => {
+                log.error('Service worker: Error skipping waiting state', err);
+            });
+            return;
+        }
+
         // Handle Comlink connection setup
-        if (event.data && event.data.type === 'CONNECT_STORAGE') {
+        if (type === 'CONNECT_STORAGE') {
             const port = event.ports[0];
             if (port) {
                 log.info('Service worker: Setting up Comlink on MessageChannel port');
-                // Expose the storage service on this specific port
                 Comlink.expose(storageService, port);
                 log.info('Service worker: Comlink exposed on port');
             } else {
@@ -38,7 +44,6 @@ export function setupServiceWorker(storageService: StorageServiceActualInterface
             return;
         }
 
-        // Handle other messages (legacy logging)
-        log.info('Service worker: Unhandled message type');
+        log.info('Service worker: Unhandled message type', event.data.type);
     });
 }

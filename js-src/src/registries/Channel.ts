@@ -1,6 +1,21 @@
+import { getLogger } from "fusion/logging";
+
+let log = getLogger('Channel');
+
 export type HandlerFunction = (message: any) => void;
 let CREATING_CHANNEL: string | null = null;
 
+// Unique ID for each tab/window instance (used only to prevent double-delivery
+// if a BroadcastChannel implementation ever echoes back to the same context).
+const INSTANCE_ID = `${Date.now()}-${Math.random()}`;
+
+interface ChannelBackend {
+    push(message: any): void;
+    subscribe(handler: HandlerFunction, indexVal?: any): Subscription;
+    removeSubscription(handler: HandlerFunction, indexVal?: any): void;
+    close(): void;
+    clearSubscriptions(): void;
+}
 
 export class Subscription {
     id: number;
@@ -20,32 +35,38 @@ export class Subscription {
     }
 }
 
-export class Channel {
-    name: string;
-    indexKey: ((message: any) => any) | null;
-    filterKey: ((message: any) => boolean) | null;
-    indexedSubscriptions: Map<any, Map<symbol, HandlerFunction>>;
-    nonIndexedSubscriptions: Map<symbol, HandlerFunction>;
+// Base class that handles subscription management and indexing logic
+abstract class BaseChannelBackend implements ChannelBackend {
+    protected indexedSubscriptions: Map<any, Map<symbol, HandlerFunction>> = new Map();
+    protected nonIndexedSubscriptions: Map<symbol, HandlerFunction> = new Map();
+    protected channel: Channel;
+    protected closed = false;
 
-    constructor(name: string, indexKey?: ((message: any) => any) | null, filterKey?: ((message: any) => boolean) | null) {
-        this.name = name;
-        this.indexKey = indexKey || null;
-        this.filterKey = filterKey || null;
-        this.indexedSubscriptions = new Map();
-        this.nonIndexedSubscriptions = new Map();
-
-        // Ensure constructor is not called directly
-        if(CREATING_CHANNEL !== name) {
-            throw new Error('Do not call Channel constructor directly, use fusion.libs.add() instead.');
-        }
+    constructor(channel: Channel) {
+        this.channel = channel;
     }
 
-    push(message: any): void {
-        if (this.filterKey && !this.filterKey(message)) {
+    close(): void {
+        log.info(`Closing channel: ${this.channel.name}`);
+        this.closed = true;
+        this.clearSubscriptions();
+    }
+
+    protected assertOpen() {
+        if (this.closed) throw new Error('Channel is closed');
+    }
+
+    abstract push(message: any): void;
+
+    // Common method to handle incoming messages (local fanout in the same JS context)
+    protected handleIncomingMessage(message: any): void {
+        log.info(`Handling message for channel: ${this.channel.name}`, message);
+        if (this.channel.filterKey && !this.channel.filterKey(message)) {
+            log.info(`Message filtered out by filterKey: ${message}`);
             return;
         }
 
-        const messageIndex = this.indexKey ? this.indexKey(message) : null;
+        const messageIndex = this.channel.indexKey ? this.channel.indexKey(message) : null;
 
         // Handle indexed messages
         if (messageIndex !== null && this.indexedSubscriptions.has(messageIndex)) {
@@ -60,6 +81,9 @@ export class Channel {
     }
 
     subscribe(handler: HandlerFunction, indexVal: any = undefined): Subscription {
+        this.assertOpen();
+        // Using a per-channel symbol derived from handler.toString().
+        // This keeps removeSubscription simple while allowing duplicates across channels.
         const handlerSymbol = Symbol.for(handler.toString());
         if (indexVal !== undefined) {
             // Indexed subscription
@@ -73,8 +97,7 @@ export class Channel {
             // Non-indexed subscription
             this.nonIndexedSubscriptions.set(handlerSymbol, handler);
         }
-
-        return new Subscription(handler, this, indexVal);
+        return new Subscription(handler, this.channel, indexVal);
     }
 
     removeSubscription(handler: HandlerFunction, indexVal: any = undefined): void {
@@ -91,66 +114,180 @@ export class Channel {
             this.nonIndexedSubscriptions.delete(handlerSymbol);
         }
     }
+
+    clearSubscriptions(): void {
+        this.indexedSubscriptions.clear();
+        this.nonIndexedSubscriptions.clear();
+    }
+}
+
+class LocalBackend extends BaseChannelBackend {
+    push(message: any): void {
+        log.info(`Pushing message to local channel: ${this.channel.name}`, message);
+        this.assertOpen();
+        // Local backend directly handles the message in the same context
+        this.handleIncomingMessage(message);
+    }
+}
+
+interface WrappedMessage {
+    _instanceId: string;
+    payload?: any;
+}
+class BroadcastChannelBackend extends BaseChannelBackend {
+    private broadcastChannel: BroadcastChannel;
+
+    constructor(channel: Channel) {
+        super(channel);
+        this.broadcastChannel = new BroadcastChannel(channel.name);
+        this.broadcastChannel.onmessage = (event) => {
+            const wrappedMessage = event.data;
+
+            // Many implementations do not echo to the same context, but guard anyway.
+            if (wrappedMessage && wrappedMessage._instanceId === INSTANCE_ID) {
+                return; // ignore self-originated BC messages
+            }
+
+            // Fan out to local subscribers in this context
+            this.handleIncomingMessage((wrappedMessage as WrappedMessage).payload);
+        };
+    }
+
+    push(message: any): void {
+        log.info(`Pushing message to broadcast channel (hybrid local+bc): ${this.channel.name}`, message);
+        this.assertOpen();
+        // HYBRID BEHAVIOR:
+        // 1) Deliver to local subscribers in *this* JS context immediately
+        this.handleIncomingMessage(message);
+        // 2) Also broadcast to other contexts (tabs/workers) listening on the same name
+        try {
+            let wrappedMessage: WrappedMessage = {
+                _instanceId: INSTANCE_ID,
+                payload: message
+            }
+            this.broadcastChannel.postMessage(wrappedMessage);
+        } catch (e) {
+            log.warning?.('BroadcastChannel postMessage failed', e);
+        }
+    }
+
+    override close(): void {
+        super.close();
+        try { this.broadcastChannel.close(); } catch { /* noop */ }
+    }
+}
+
+export class Channel {
+    name: string;
+    indexKey: ((message: any) => any) | null;
+    filterKey: ((message: any) => boolean) | null;
+    private backend: ChannelBackend;
+
+    constructor(name: string, options: {
+        backend?: 'local' | 'broadcast';
+        indexKey?: (message: any) => any;
+        filterKey?: (message: any) => boolean;
+    } = {}) {
+        this.name = name;
+        this.indexKey = options.indexKey || null;
+        this.filterKey = options.filterKey || null;
+
+        if (CREATING_CHANNEL !== name) {
+            throw new Error('Do not call Channel constructor directly, use fusion.libs.add() instead.');
+        }
+
+        if (options.backend === 'broadcast') {
+            if (typeof BroadcastChannel === 'undefined') {
+                throw new Error('BroadcastChannel API is not available in this environment');
+            }
+            this.backend = new BroadcastChannelBackend(this);
+        } else {
+            this.backend = new LocalBackend(this);
+        }
+    }
+
+    push(message: any): void {
+        this.backend.push(message);
+    }
+
+    subscribe(handler: HandlerFunction, indexVal: any = undefined): Subscription {
+        return this.backend.subscribe(handler, indexVal);
+    }
+
+    removeSubscription(handler: HandlerFunction, indexVal: any = undefined): void {
+        this.backend.removeSubscription(handler, indexVal);
+    }
+
+    close(): void {
+        this.backend.close();
+    }
+
+    clearSubscriptions(): void {
+        this.backend.clearSubscriptions();
+    }
 }
 
 function callDelayed(handler: (message: any) => void, message: any): void {
+    log.info(`Calling handler`, message);
     queueMicrotask(() => {
         handler(message);
     });
 }
 
-// Store for all channels, similar to _channels dictionary in the Python code.
+// Store for all channels.
 const channels = new Map<string, Channel>();
-
 
 /**
  * Registers a new channel.
- * @param name The name of the channel.
- * @param indexKey Optional function to generate an index key for messages.
- * @param filterKey Optional function to determine if a message should be processed.
- * @returns The newly created Channel instance.
- * @throws If a channel with the same name already exists.
  */
 export function addChannel(
     name: string,
-    indexKey?: (message: any) => any,
-    filterKey?: (message: any) => boolean
-  ): Channel {
+    options: {
+        backend?: 'local' | 'broadcast';
+        indexKey?: (message: any) => any;
+        filterKey?: (message: any) => boolean;
+    } = {}
+): Channel {
+    log.info(`Adding channel: ${name}`);
     if (channels.has(name)) {
-      throw new Error('A channel with this name already exists');
+        throw new Error('A channel with this name already exists');
     }
-    // create the channel without using the constructor directly
     CREATING_CHANNEL = name;
 
-    const channel = new Channel(name, indexKey, filterKey);
+    const channel = new Channel(name, options);
     channels.set(name, channel);
 
     CREATING_CHANNEL = null;
     return channel;
-  }
+}
 
-  /**
-   * Removes a channel by its name.
-   * @param name The name of the channel to remove.
-   * @returns True if the channel was successfully removed, false otherwise.
-   */
- export function removeChannel(name: string) {
+/**
+ * Removes a channel by its name.
+ */
+export function removeChannel(name: string) {
+    log.info(`Removing channel ${name}`);
     if (!channels.has(name)) {
         throw new Error(`Channel with name "${name}" does not exist and cannot be removed.`);
-      }
-      channels.delete(name);
-  }
+    }
+    const channel = channels.get(name);
+    channel?.close();
+    channels.delete(name);
+}
 
+export function getChannel(name: string): Channel | undefined {
+    return channels.get(name);
+}
 
 // For testing
-
 export function unsubscribeAll(): void {
     channels.forEach((channel) => {
-        channel.indexedSubscriptions.clear();
-        channel.nonIndexedSubscriptions.clear();
+        channel.clearSubscriptions();
     });
 }
 
 export function clearChannels(): void {
+    channels.forEach((channel) => {
+        channel.close();
+    });
     channels.clear();
 }

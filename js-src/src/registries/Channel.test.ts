@@ -1,80 +1,91 @@
-import { addChannel, HandlerFunction, Channel, clearChannels } from './Channel'; // Assuming this is the file name
+import { addChannel, clearChannels, HandlerFunction } from './Channel';
 
-describe('Channel', () => {
-    let channel: Channel;
-    let mockHandler: jest.Mock<HandlerFunction>;
-    let mockHandler2: jest.Mock<HandlerFunction>;
-    let mockFilter: jest.Mock;
+// Helper to flush the microtask queue (Channel uses queueMicrotask)
+const flushMicrotasks = () => new Promise<void>((resolve) => queueMicrotask(resolve));
 
-    beforeEach(() => {
-        // Setup a new channel for each test to avoid state leakage
-        channel = addChannel('test');
-        mockHandler = jest.fn();
-        mockHandler2 = jest.fn();
-        mockFilter = jest.fn().mockReturnValue(true); // default to always passing filter
-        // mockHandler.mockClear();
-        clearChannels(); // Clear all subscriptions between tests
-    });
+describe('Channel (local backend)', () => {
+  afterEach(() => {
+    clearChannels();
+    jest.clearAllMocks();
+  });
 
-    test('should call a subscribed handler with the correct message', done => {
-        channel.subscribe(mockHandler);
-        channel.push('test message');
+  test('delivers to a subscribed handler', async () => {
+    const ch = addChannel('test-basic');
+    const h: jest.MockedFunction<HandlerFunction> = jest.fn();
 
-        // Since `callDelayed` uses `queueMicrotask`, we need to wait for the microtask queue to be flushed
-        queueMicrotask(() => {
-            // The assertion is placed inside a `queueMicrotask` call to ensure it runs after the handler has been called
-            expect(mockHandler).toHaveBeenCalledWith('test message');
-            done();
-        });
-    });
+    ch.subscribe(h);
+    ch.push('hello');
 
-    test('should not call the handler if the filterKey rejects the message', done => {
-        // Define a filter that rejects every message
-        channel.filterKey = () => false;
+    await flushMicrotasks();
+    expect(h).toHaveBeenCalledWith('hello');
+    expect(h).toHaveBeenCalledTimes(1);
+  });
 
-        // Subscribe the mock handler to the test channel
-        channel.subscribe(mockHandler);
+  test('filterKey (set after creation) prevents delivery', async () => {
+    const ch = addChannel('test-filter-late');
+    const h: jest.MockedFunction<HandlerFunction> = jest.fn();
 
-        // Push a message that should be filtered out
-        channel.push('test message');
+    ch.filterKey = () => false; // reject everything
+    ch.subscribe(h);
+    ch.push('blocked');
 
-        // Check after microtasks have been processed that the handler has not been called
-        queueMicrotask(() => {
-          expect(mockHandler).not.toHaveBeenCalled();
-          done();
-        });
-      });
+    await flushMicrotasks();
+    expect(h).not.toHaveBeenCalled();
+  });
 
-//   test('handles indexed subscription and dispatching', done => {
-//     channel.subscribe(mockHandler, 'index1');
-//     channel.subscribe(mockHandler2, 'index2');
+  test('filterKey (provided at creation) gates messages', async () => {
+    const ch = addChannel('test-filter-init', { filterKey: (m: any) => m?.pass === true });
+    const h: jest.MockedFunction<HandlerFunction> = jest.fn();
 
-//     channel.push({ data: 'message for index1', index: 'index1', filter: true });
-//     // expect(mockHandler).toHaveBeenCalledWith({ data: 'message for index1', index: 'index1', filter: true });
-//     // expect(mockHandler2).not.toHaveBeenCalled();
-//     queueMicrotask(() => {
-//         expect(mockHandler).toHaveBeenCalledWith({ data: 'message for index1', index: 'index1', filter: true });
-//         expect(mockHandler2).not.toHaveBeenCalled();
-//         done();
-//     });
+    ch.subscribe(h);
 
+    ch.push({ pass: false, msg: 'nope' });
+    await flushMicrotasks();
+    expect(h).not.toHaveBeenCalled();
 
-//     channel.push({ data: 'message for index2', index: 'index2', filter: true });
-//     // expect(mockHandler2).toHaveBeenCalledWith({ data: 'message for index2', index: 'index2', filter: true });
-//     queueMicrotask(() => {
-//         expect(mockHandler2).toHaveBeenCalledWith({ data: 'message for index2', index: 'index2', filter: true });
-//         done();
-//     });
-//   });
+    ch.push({ pass: true, msg: 'ok' });
+    await flushMicrotasks();
+    expect(h).toHaveBeenCalledTimes(1);
+    expect(h).toHaveBeenCalledWith({ pass: true, msg: 'ok' });
+  });
 
-//   test('unsubscribes handlers correctly', () => {
-//     const subscription = channel.subscribe(mockHandler);
-//     channel.push({ data: 'before unsubscribe', index: null, filter: true });
-//     expect(mockHandler).toHaveBeenCalledTimes(1);
+  test('indexed subscriptions receive only matching messages', async () => {
+    const ch = addChannel('test-indexed', { indexKey: (m: any) => m?.index ?? null });
 
-//     subscription.unsubscribe();
-//     channel.push({ data: 'after unsubscribe', index: null, filter: true });
-//     expect(mockHandler).toHaveBeenCalledTimes(1); // Should still be 1 if unsubscribed correctly
-//   });
+    const h1: jest.MockedFunction<HandlerFunction> = jest.fn();
+    const h2: jest.MockedFunction<HandlerFunction> = jest.fn();
 
+    ch.subscribe(h1, 'index1');
+    ch.subscribe(h2, 'index2');
+
+    ch.push({ index: 'index1', payload: 1 });
+    await flushMicrotasks();
+    expect(h1).toHaveBeenCalledWith({ index: 'index1', payload: 1 });
+    expect(h2).not.toHaveBeenCalled();
+
+    ch.push({ index: 'index2', payload: 2 });
+    await flushMicrotasks();
+    expect(h2).toHaveBeenCalledWith({ index: 'index2', payload: 2 });
+
+    // non-indexed message (indexKey returns null) should not hit indexed subs
+    ch.push({ payload: 3 });
+    await flushMicrotasks();
+    expect(h1).toHaveBeenCalledTimes(1);
+    expect(h2).toHaveBeenCalledTimes(1);
+  });
+
+  test('unsubscribe stops further deliveries', async () => {
+    const ch = addChannel('test-unsub');
+    const h: jest.MockedFunction<HandlerFunction> = jest.fn();
+
+    const sub = ch.subscribe(h);
+    ch.push('once');
+    await flushMicrotasks();
+    expect(h).toHaveBeenCalledTimes(1);
+
+    sub.unsubscribe();
+    ch.push('twice');
+    await flushMicrotasks();
+    expect(h).toHaveBeenCalledTimes(1);
+  });
 });

@@ -2,12 +2,13 @@ import * as Comlink from 'comlink';
 import { ProjectStorageManager, ProjectStorageConfig } from './ProjectStorageManager';
 import { SerializedStoreData } from '../domain-store/BaseStore';
 import { Delta, DeltaData } from '../../model/Delta';
-import { RepoUpdateData } from "../repository/BaseRepository"
+import { RepoUpdateData } from "../repository/Repository"
 import { createId } from '../../util/base';
 import { buildHashTree } from '../version-control/HashTree';
-import { MediaItem, MediaItemData } from '../../model/MediaItem';
+import { MediaItemData } from '../../model/MediaItem';
 import { generateUniquePathWithSuffix } from "../../util/secondary";
 import { getLogger } from '../../logging';
+import { addChannel, Channel, getChannel, Subscription } from '../../registries/Channel';
 
 let log = getLogger('StorageService')
 
@@ -30,9 +31,16 @@ export type RepoUpdateNotifiedSignature = (update: RepoUpdateData) => void;
 
 export interface StorageServiceActualInterface {
     loadProject: (projectId: string, repoManagerConfig: ProjectStorageConfig) => Promise<void>;
+    createProject: (projectId: string, projectStorageConfig: ProjectStorageConfig) => Promise<void>;
     unloadProject: (projectId: string) => Promise<void>;
     deleteProject: (projectId: string, projectStorageConfig: ProjectStorageConfig) => Promise<void>;
     headState: (projectId: string) => Promise<SerializedStoreData>;
+
+    // Repo changes (mostly commits to the domain store as of now) can come from
+    // different sources (the UI/FDS, remote storage sync adapters), so they operate
+    // like a queue - many sources push requests, and the tabs receive the
+    // updates via the broadcast channel to consume any changes that don'l
+    // source from them.
     _storageOperationRequest: (request: StorageOperationRequest) => Promise<void>;
 
     // Media operations
@@ -42,6 +50,7 @@ export interface StorageServiceActualInterface {
     moveMediaToTrash: (projectId: string, mediaId: string, mediaHash: string) => Promise<void>;
 
     test(): boolean;
+    disconnect: () => void;
 }
 
 interface StorageOperationRequest {
@@ -68,7 +77,19 @@ export interface LocalStorageUpdateMessage {
 }
 
 
-const LOCAL_STORAGE_UPDATE_CHANNEL = 'storage-service-local-storage-update-channel'
+export const LOCAL_STORAGE_UPDATE_CHANNEL = 'storage-service-local-storage-update-channel';
+
+// Helper to create a storage channel with backend auto-selection
+// The policy here is to create the channel for the app scope and reuse it
+// Cleanup is not a concern until it becomes one
+export function getStorageUpdatesChannel(name: string): Channel {
+    const backend = (typeof BroadcastChannel !== 'undefined') ? 'broadcast' : 'local';
+    let channel = getChannel(name);
+    if (!channel) {
+        channel = addChannel(name, { backend: backend });
+    }
+    return channel
+}
 
 export class StorageService {
     /**
@@ -94,20 +115,24 @@ export class StorageService {
     private _service: Comlink.Remote<StorageServiceActualInterface> | StorageServiceActualInterface | null = null;
     _worker: ServiceWorker | null = null;
     _workerRegistration: ServiceWorkerRegistration | null = null;
-    _localUpdateBroadcastChannel: BroadcastChannel | null = null;
+    _localUpdateChannel: Channel | null = null;
+    _localUpdateSubscription: Subscription | null = null;
     _currentProjectId: string | null = null; // Only one project allowed per tab
     _localStorageUpdateCallback: RepoUpdateNotifiedSignature | null = null; // Callback for current project
+    _isWrapper: boolean = false; // whether this is a wrapper for the service worker or a main thread instance
 
     constructor() {
-        // Create the broadcast channel for receiving updates
-        this._localUpdateBroadcastChannel = new BroadcastChannel(LOCAL_STORAGE_UPDATE_CHANNEL);
-        this._localUpdateBroadcastChannel.onmessage = (event) => {
-            const update: LocalStorageUpdateMessage = event.data;
-            if (this._currentProjectId === update.projectId && this._localStorageUpdateCallback) {
-                this._localStorageUpdateCallback(update.update);
-            }
-        };
-        log.info('Broadcast channel created for updates', this._localUpdateBroadcastChannel.name);
+        // Create the channel for receiving updates (broadcast if available, else local)
+        this._localUpdateChannel = getStorageUpdatesChannel(LOCAL_STORAGE_UPDATE_CHANNEL);
+        this._localUpdateSubscription = this._localUpdateChannel.subscribe(this._handleChannelMessage.bind(this));
+    }
+
+    _handleChannelMessage(updateMessage: LocalStorageUpdateMessage) {
+        log.info('Received local storage update', updateMessage);
+
+        if (this._currentProjectId === updateMessage.projectId && this._localStorageUpdateCallback) {
+            this._localStorageUpdateCallback(updateMessage.update);
+        }
     }
 
     get service(): Comlink.Remote<StorageServiceActualInterface> | StorageServiceActualInterface {
@@ -122,78 +147,59 @@ export class StorageService {
         this._service = new StorageServiceActual();
     }
 
-    async registerServiceWorker(serviceWorkerUrl: any): Promise<ServiceWorker | null> {
-        if (!("serviceWorker" in navigator)) {
-            log.warning("Service workers are not supported.");
-            return null;
-        }
+    async setupInServiceWorker(serviceWorkerUrl: string) {
+        this._isWrapper = true;
+        await this.registerServiceWorker(serviceWorkerUrl);
+        await this.waitForController();      // <-- handles first install
+        await this.connectToWorker();
 
-        log.info('Registering service worker ', serviceWorkerUrl)
-        let registration: ServiceWorkerRegistration;
-
-        if (!this._workerRegistration) {
-            try {
-                registration = await navigator.serviceWorker.register(
-                    serviceWorkerUrl, { type: "module", scope: "/" })
-                this.setWorkerRegistration(registration);
-            } catch (error) {
-                log.warning(`Service worker registration failed: ${error}`);
-                return null;
-            }
-        }
-
-        await navigator.serviceWorker.ready;
-
-        const controller = navigator.serviceWorker.controller;
-        if (!controller) {
-            // A hard reset disables workers. There might be other similar
-            // reliability issues, like private browsing, etc
-            log.warning("Service worker controller not found.");
-            return null;
-        }
-
-        return controller;
+        // Reconnect after updates / skipWaiting
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            this.connectToWorker().catch(err => log.error('Reconnect after update failed', err));
+        });
     }
 
-    async setupInServiceWorker(serviceWorkerUrl: any) {
-        log.info('Setting up storage service in service worker', serviceWorkerUrl);
-
-        let controller = await this.registerServiceWorker(serviceWorkerUrl);
-        if (!controller) {
-            throw new Error("Service worker not available");
+    async registerServiceWorker(serviceWorkerUrl: string): Promise<ServiceWorkerRegistration> {
+        if (!('serviceWorker' in navigator)) {
+            throw new Error('Service workers are not supported in this browser.');
         }
+        if (this._workerRegistration) {
+            throw new Error('Service worker already registered. Cannot register again.');
+        }
+        log.info('Registering service worker ', serviceWorkerUrl);
+        const registration = await navigator.serviceWorker.register(serviceWorkerUrl, { type: 'module', scope: '/' });
+        this.setWorkerRegistration(registration);
+        return registration;
+    }
 
-        // Create MessageChannel for proper Comlink communication
-        const messageChannel = new MessageChannel();
-        const port1 = messageChannel.port1;
-        const port2 = messageChannel.port2;
+    private async waitForController(): Promise<void> {
+        if (navigator.serviceWorker.controller) return;
+        await new Promise<void>((resolve, reject) => {
+            const to = setTimeout(() => reject(new Error('SW never took control')), 15000);
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                clearTimeout(to);
+                resolve();
+            }, { once: true });
+        });
+    }
 
-        log.info('Created MessageChannel for Comlink communication');
-
-        // Send port2 to the service worker
+    private async connectToWorker(): Promise<void> {
+        const controller = navigator.serviceWorker.controller!;
+        const { port1, port2 } = new MessageChannel();
         controller.postMessage({ type: 'CONNECT_STORAGE' }, [port2]);
-        log.info('Sent MessageChannel port to service worker');
-
-        // Store reference to the worker
         this._worker = controller;
 
-        // Wrap port1 for communication
-        let service = Comlink.wrap<StorageServiceActualInterface>(port1);
-        log.info('Wrapped MessageChannel port1 with Comlink');
+        const service = Comlink.wrap<StorageServiceActualInterface>(port1);
 
-        // Confirm the connection works
         try {
-            let testResult = await service.test();
-            log.info('Service worker test passed, result:', testResult);
+            await service.test();
         } catch (e) {
             log.error('Service worker test failed:', e);
-            throw Error(`Service worker test failed: ${e}`);
+            throw new Error(`Service worker test failed: ${e}`);
         }
-
         this._service = service;
-        console.log('Remote service initialized', service)
+        log.info('Remote service initialized');
     }
-
 
     setWorkerRegistration(registration: ServiceWorkerRegistration) {
         this._workerRegistration = registration;
@@ -209,37 +215,35 @@ export class StorageService {
 
     // Proxy interface methods
     async loadProject(projectId: string, projectStorageConfig: ProjectStorageConfig, commitNotify: RepoUpdateNotifiedSignature): Promise<void> {
-        log.info('Loading project', projectId)
-
         // Enforce one project per tab restriction
         if (this._currentProjectId) {
             throw new Error(`Cannot load project ${projectId}. Project ${this._currentProjectId} is already loaded. Only one project per tab is allowed.`);
         }
 
+        log.info('Loading project with storage config', projectStorageConfig)
+        await this.service.loadProject(projectId, projectStorageConfig);
+
         // Store current project and callback
         this._currentProjectId = projectId;
         this._localStorageUpdateCallback = commitNotify;
-
-        log.info('Loading project with storage config', projectStorageConfig)
-        await this.service.loadProject(projectId, projectStorageConfig);
-        log.info('Loaded project', projectId)
     }
     async unloadProject(projectId: string): Promise<void> {
-        log.info('Unloading project', projectId)
-
         if (this._currentProjectId !== projectId) {
             throw new Error(`Trying to unload a project that is not the current project: ${projectId}`);
         }
 
+        await this.service.unloadProject(projectId);
+        log.info('Unloaded project', projectId)
+
         // Clear current project and callback
         this._currentProjectId = null;
         this._localStorageUpdateCallback = null;
-
-        await this.service.unloadProject(projectId);
-        log.info('Unloaded project', projectId)
     }
     async deleteProject(projectId: string, projectStorageConfig: ProjectStorageConfig): Promise<void> {
         return this.service.deleteProject(projectId, projectStorageConfig);
+    }
+    async createProject(projectId: string, projectStorageConfig: ProjectStorageConfig): Promise<void> {
+        return this.service.createProject(projectId, projectStorageConfig);
     }
     async _storageOperationRequest(request: StorageOperationRequest): Promise<any> {
         return this.service._storageOperationRequest(request);
@@ -275,6 +279,43 @@ export class StorageService {
     async test() {
         return this.service.test();
     }
+
+    async unregisterServiceWorker() {
+        if (!this._workerRegistration) {
+            throw new Error('Service worker registration not found. Cannot restart service worker.');
+        }
+
+        log.info('Unregistering service worker...');
+        await this._workerRegistration.unregister();
+        log.info('Service worker unregistered. Reloading page to re-register...');
+        window.location.reload();
+    }
+
+    async checkForUpdate(): Promise<'waiting' | 'none' | 'no-reg'> {
+        const reg = this._workerRegistration;
+        if (!reg) return 'no-reg';
+        await reg.update();
+        return reg.waiting ? 'waiting' : 'none';
+    }
+
+    async applyUpdateNow(): Promise<void> {
+        const reg = this._workerRegistration;
+        if (!reg?.waiting) return;
+        const swapped = new Promise<void>(resolve =>
+            navigator.serviceWorker.addEventListener('controllerchange', () => resolve(), { once: true })
+        );
+        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+        await swapped; // controller replaced; connectToWorker() listener will fire
+    }
+
+    disconnect() {
+        this._localUpdateSubscription?.unsubscribe();
+
+        if (this._service && !this._isWrapper) {
+            // eslint-disable-next-line
+            this._service.disconnect();
+        }
+    }
 }
 
 export class StorageServiceActual implements StorageServiceActualInterface {
@@ -290,27 +331,28 @@ export class StorageServiceActual implements StorageServiceActualInterface {
     id: string = createId(8)
     private repoManagers: { [key: string]: ProjectStorageManager } = {}; // Per projectId
     private repoRefCounts: { [key: string]: number } = {}; // Per projectId - reference counting
-    private _storageOperationBroadcaster: BroadcastChannel;
-    private _storageOperationReceiver: BroadcastChannel;
+    private _storageUpdateChannel: Channel;
+    private _storageUpdateSubscription: Subscription | null = null;
     private _storageOperationQueue: StorageOperationRequest[] = [];
-
+    private _processing = false;
     private mediaRequestParser?: MediaRequestParser;
 
     constructor(mediaRequestParser?: MediaRequestParser) {
         this.mediaRequestParser = mediaRequestParser;
-        this._storageOperationBroadcaster = new BroadcastChannel(LOCAL_STORAGE_UPDATE_CHANNEL);
-        this._storageOperationReceiver = new BroadcastChannel(LOCAL_STORAGE_UPDATE_CHANNEL);
 
-        this._storageOperationReceiver.onmessage = (message) => {
-            this._onLocalStorageUpdate(message.data);
-        };
+        // Single channel for broadcasting and receiving storage updates
+        this._storageUpdateChannel = getStorageUpdatesChannel(LOCAL_STORAGE_UPDATE_CHANNEL);
+        this._storageUpdateSubscription = this._storageUpdateChannel.subscribe(
+            (message: LocalStorageUpdateMessage) => this._onLocalStorageUpdate(message)
+        );
 
         // setInterval(() => {
         //     log.info(`StorageServiceActual heartbeat. ID: ${this.id}. Loaded repos: ${Object.keys(this.repoManagers).join(', ')}`);
         // }, 5000);
     }
-    get inWorker(): boolean { // Might need to be more specific?
-        return typeof self !== 'undefined';
+    get inWorker(): boolean {
+        // @ts-ignore: ServiceWorkerGlobalScope is global only in SW
+        return typeof ServiceWorkerGlobalScope !== 'undefined' && self instanceof ServiceWorkerGlobalScope;
     }
 
     test() {
@@ -414,9 +456,9 @@ export class StorageServiceActual implements StorageServiceActualInterface {
          */
         let repoManager = this.repoManagers[projectId];
         if (!repoManager) {
-            repoManager = new ProjectStorageManager(this, projectStorageConfig);
+            repoManager = new ProjectStorageManager(projectStorageConfig);
             this.repoManagers[projectId] = repoManager;
-            await repoManager.init();
+            await repoManager.loadProject();
 
             this.repoRefCounts[projectId] = 0;
 
@@ -425,8 +467,7 @@ export class StorageServiceActual implements StorageServiceActualInterface {
             // Perform cleanup of old deleted media items on startup
             await repoManager.mediaStore.cleanTrash();
         } else { // Repo already loaded
-            log.info('Repo already loaded', projectId);
-            log.info('Loaded repo manager for project', JSON.stringify(repoManager.config));
+            log.info(`Repo manager already loaded for project ${projectId}. Skipping initialization.`);
             // Check that the configs are the same
             // deep compare the configs
             let configsAreTheSame = JSON.stringify(repoManager.config) === JSON.stringify(projectStorageConfig);
@@ -461,6 +502,24 @@ export class StorageServiceActual implements StorageServiceActualInterface {
             log.info('Unloaded repo for project', projectId);
         }
     }
+
+    async createProject(projectId: string, projectStorageConfig: ProjectStorageConfig): Promise<void> {
+        let repoManager = this.repoManagers[projectId];
+        if (repoManager) {
+            throw new Error(`Project ${projectId} already exists.`);
+        }
+
+        repoManager = new ProjectStorageManager(projectStorageConfig);
+        await repoManager.createProject();
+
+        console.log(`[createProject] Created repo with head store ${JSON.stringify(repoManager._onDeviceRepo?.headStore)}`)
+        // this.repoManagers[projectId] = repoManager;
+        await repoManager.shutdown();  // Just create it, load separately
+
+        this.repoRefCounts[projectId] = 0;
+
+    }
+
     async deleteProject(projectId: string, projectStorageConfig: ProjectStorageConfig): Promise<void> {
         // Delete the local storage
         let projectStorageManager = this.repoManagers[projectId];
@@ -474,7 +533,7 @@ export class StorageServiceActual implements StorageServiceActualInterface {
             log.info('Loaded repo temporarily for deletion', projectId);
         }
         projectStorageManager = this.repoManagers[projectId];
-        await projectStorageManager.localStorageRepo.eraseStorage();
+        await projectStorageManager.onDeviceRepo.eraseStorage();
         log.info('Erased local storage for project', projectId);
 
         if (wasTemporarilyLoaded) { // Unload tmp repo
@@ -484,30 +543,37 @@ export class StorageServiceActual implements StorageServiceActualInterface {
     }
 
     async _storageOperationRequest(request: StorageOperationRequest): Promise<void> {
-        log.info('Storage operation request made', request)
-        // This is a wrapper for the actual storage operation
-        // It's used to queue operations and execute them in order
         this._storageOperationQueue.push(request);
-
-        // Call queue processing deferred
-        setTimeout(() => {
-            this.processStorageOperationQueue().catch((error) => {
-                log.error('Error processing storage operation queue', error)
-            });
-        });
+        if (!this._processing) await this.processStorageOperationQueue();
     }
-    async _exectuteCommitRequest(request: CommitRequest): Promise<void> {
+
+    private async processStorageOperationQueue(): Promise<void> {
+        if (this._processing) return;
+        this._processing = true;
+        try {
+            while (this._storageOperationQueue.length) {
+                const req = this._storageOperationQueue.shift()!;
+                await this._executeStorageOperationRequest(req);
+            }
+        } catch (error) {
+            log.error('Error processing storage operation queue', error);
+        } finally {
+            this._processing = false;
+        }
+    }
+
+    async _executeCommitRequest(request: CommitRequest): Promise<void> {
         console.log('Type is commit')
         let commitRequest = request as CommitRequest;
         let projectStorageManager = this.repoManagers[commitRequest.projectId];
 
         // Commit to in-mem
-        let commit = await projectStorageManager.inMemoryRepo.commit(new Delta(commitRequest.deltaData), commitRequest.message);
+        let commit = await projectStorageManager.onDeviceRepo.commit(new Delta(commitRequest.deltaData), commitRequest.message);
         console.log('Created commit', commit)
 
         // Integrity check (TMP)
-        let hashTree = await buildHashTree(projectStorageManager.inMemoryRepo.headStore);
-        let currentHash = projectStorageManager.inMemoryRepo.hashTree.rootHash();
+        let hashTree = await buildHashTree(projectStorageManager.onDeviceRepo.headStore);
+        let currentHash = projectStorageManager.onDeviceRepo.hashTree.rootHash();
 
         if (currentHash !== hashTree.rootHash()) {
             log.error('Hash tree integrity check failed',
@@ -516,44 +582,33 @@ export class StorageServiceActual implements StorageServiceActualInterface {
             return;
         }
 
-        // Save in local storage
-        log.info('Pulling the new commit from the adapter into the project inMem repo')
-        await projectStorageManager.localStorageRepo.pull(projectStorageManager.inMemoryRepo);
+        // // Save in local storage
+        // log.info('Pulling the new commit from the adapter into the project inMem repo')
+        // await projectStorageManager.onDeviceRepo.pull(projectStorageManager.onDeviceRepo);
 
         // Notify subscribers
+        let commitGraph = await this.repoManagers[commitRequest.projectId].onDeviceRepo.getCommitGraph()
         this.broadcastLocalUpdate({
             projectId: commitRequest.projectId,
             storageServiceId: this.id,
             update: {
-                commitGraph: this.repoManagers[commitRequest.projectId].inMemoryRepo.commitGraph.data(),
+                commitGraph: commitGraph.data(),
                 newCommits: [commit.data()]
             }
         });
     }
     async _executeStorageOperationRequest(request: StorageOperationRequest): Promise<void> {
-        log.info('Executing storage operation request', request)
         if (request.type === 'commit') {
-            await this._exectuteCommitRequest(request as CommitRequest);
+            await this._executeCommitRequest(request as CommitRequest);
         } else {
             log.error('Unknown storage operation request', request)
         }
     }
 
-    async processStorageOperationQueue() {
-        log.info('Processing storage operation queue')
-        for (let request of this._storageOperationQueue) {
-            try {
-                await this._executeStorageOperationRequest(request);
-            } catch (error) {
-                log.error('Error processing storage operation request', request, error)
-            }
-        }
-        this._storageOperationQueue = [];
-    }
 
     broadcastLocalUpdate(update: LocalStorageUpdateMessage) {
         log.info('Broadcasting local storage update', update);
-        this._storageOperationBroadcaster.postMessage(update);
+        this._storageUpdateChannel.push(update);
     }
 
     _onLocalStorageUpdate(updateMessage: LocalStorageUpdateMessage) {
@@ -561,33 +616,21 @@ export class StorageServiceActual implements StorageServiceActualInterface {
 
         // (Edge case) If there's more than one local storage service
         // (e.g. hard refresh and no service worker) - react on updates by pulling
-        if (updateMessage.storageServiceId === this.id) {
-            if (updateMessage.projectId in this.repoManagers) {
-                let repoManager = this.repoManagers[updateMessage.projectId];
-                repoManager.inMemoryRepo.pull(repoManager.localStorageRepo).then(
-                    () => {
-                        this._notifySubscribers(updateMessage.projectId, updateMessage.update);
-                    }
-                ).catch((error) => {
-                    log.error('Error pulling local storage update', error)
-                });
-            }
-        } else {
-            // Notify all subscribers
-            this._notifySubscribers(updateMessage.projectId, updateMessage.update);
+        // Should be done only for updates that are not from this service
+        if (updateMessage.storageServiceId !== this.id && updateMessage.projectId in this.repoManagers) {
+            let repoManager = this.repoManagers[updateMessage.projectId];
+            repoManager.onDeviceRepo.pull(repoManager.onDeviceRepo).catch((error) => {
+                log.error('Error pulling local storage update', error)
+            });
         }
     }
 
-    _notifySubscribers(projectId: string, update: RepoUpdateData) {
-        // No-op in service worker - notifications handled via BroadcastChannel
-        // The main thread StorageService will handle callback notifications
-    }
     async headState(projectId: string): Promise<SerializedStoreData> {
         let repoManager = this.repoManagers[projectId];
         if (!repoManager) {
             throw new Error("Repo not loaded");
         }
-        return repoManager.inMemoryRepo.headStore.data();
+        return repoManager.onDeviceRepo.headStore.data();
     }
     // Media operations
     async addMedia(projectId: string, blob: Blob, path: string, parentId: string): Promise<MediaItemData> {
@@ -599,7 +642,7 @@ export class StorageServiceActual implements StorageServiceActualInterface {
         // Generate a unique path using the utility function and check against the in-memory repository
         const uniquePath = generateUniquePathWithSuffix(path, (checkPath: string) => {
             // Check if any entity with this path exists in the in-memory repository
-            return !!repoManager.inMemoryRepo.headStore.findOne({ path: checkPath });
+            return !!repoManager.onDeviceRepo.headStore.findOne({ path: checkPath });
         });
 
         log.info(`Adding media to project ${projectId} with unique path: ${uniquePath}`);
@@ -629,5 +672,9 @@ export class StorageServiceActual implements StorageServiceActualInterface {
             throw new Error("Repo not loaded");
         }
         return repoManager.mediaStore.moveMediaToTrash(mediaId, mediaHash);
+    }
+
+    disconnect() {
+        this._storageUpdateSubscription?.unsubscribe();
     }
 }

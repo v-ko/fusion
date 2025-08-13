@@ -1,61 +1,38 @@
-import { AsyncInMemoryRepository } from "./AsyncInMemoryRepo";
-import { InMemoryStore } from "../domain-store/InMemoryStore";
-import { Entity, entityType } from "../../model/Entity";
-import type { EntityData } from "../../model/Entity";
+import { DEFAULT_INDEX_CONFIGS_LIST, InMemoryStore } from "../domain-store/InMemoryStore";
 import { Change } from "../../model/Change";
 import { Commit } from "../version-control/Commit";
 import { buildHashTree } from "../version-control/HashTree";
 import { Delta } from "../../model/Delta";
+import { Repository, StorageAdapterConfig } from "fusion/storage/repository/Repository";
+import { createId } from "../../util/base";
+import { Page, Note } from "../test-utils";
 
-@entityType("DummyPage")
-class DummyPage extends Entity<EntityData> {
-    constructor(data: EntityData) {
-        super(data);
-    }
-    get parentId(): string {
-        return '';
-    }
-}
 
-interface DummyEntityData extends EntityData {
-    name: string;
-    pageId: string;
-}
-
-@entityType("DummyEntity")
-class DummyEntity extends Entity<EntityData> {
-    _data: DummyEntityData;
-
-    constructor(data: DummyEntityData) {
-        super(data);
-        this._data = data;
-    }
-    get name(): string {
-        return this._data.name;
-    }
-    set name(name: string) {
-        this._data.name = name;
-    }
-    get parentId(): string {
-        return this._data.pageId;
-    }
-}
 
 describe("Repository base functionality", () => {
-    let repo: AsyncInMemoryRepository;
+    let repo: Repository;
+
+    beforeEach(async () => {
+        const config: StorageAdapterConfig = {
+            name: 'InMemory',
+            args: {
+                localBranchName: 'dev1',
+                projectId: createId()
+            }
+        };
+        repo = await Repository.create(config, true, DEFAULT_INDEX_CONFIGS_LIST);
+    });
 
     test("Commit", async () => {
-        // Create repo,
-        repo = new AsyncInMemoryRepository()
-        await repo.init('dev1')
+        // The repo is created in beforeEach
         let initialHash = repo.hashTree.rootHash()
         // console.log('Initial hash:', initialHash)
 
         let sourceStore = new InMemoryStore()
 
         let changes: Change[] = [
-            sourceStore.insertOne(new DummyPage({ id: 'page1' })),
-            sourceStore.insertOne(new DummyEntity({ id: 'entity1', name: 'entity1', pageId: 'page1' })),
+            sourceStore.insertOne(new Page({ id: 'page1', name: 'Page 1' })),
+            sourceStore.insertOne(new Note({ id: 'entity1', name: 'entity1', pageId: 'page1' })),
         ]
         let delta = Delta.fromChanges(changes)
         let commit: Commit
@@ -88,26 +65,30 @@ describe("Repository base functionality", () => {
     });
 
     test("Pull same branch", async () => {
-        let repo1 = new AsyncInMemoryRepository()
-        await repo1.init('dev1')
-        let repo2 = new AsyncInMemoryRepository()
-        await repo2.init('dev1')
+        const config2: StorageAdapterConfig = {
+            name: 'InMemory',
+            args: {
+                localBranchName: 'dev1',
+                projectId: createId()
+            }
+        };
+        let repo2 = await Repository.create(config2, true, DEFAULT_INDEX_CONFIGS_LIST);
 
         // Add some data to repo1
         let sourceStore = new InMemoryStore()
 
         let changes: Change[] = [
-            sourceStore.insertOne(new DummyPage({ id: 'page1' })),
-            sourceStore.insertOne(new DummyEntity({ id: 'entity1', name: 'entity1', pageId: 'page1' })),
+            sourceStore.insertOne(new Page({ id: 'page1' , name: 'Page 1' })),
+            sourceStore.insertOne(new Note({ id: 'entity1', name: 'entity1', pageId: 'page1' })),
         ]
 
         let delta = Delta.fromChanges(changes)
-        await repo1.commit(delta, 'Initial commit')
+        await repo.commit(delta, 'Initial commit')
 
         // Pull from repo1 to repo2
-        await repo2.pull(repo1)
+        await repo2.pull(repo)
 
-        let hash1 = repo1.hashTree.rootHash()
+        let hash1 = repo.hashTree.rootHash()
         let hash2 = repo2.hashTree.rootHash()
         expect(hash1).toEqual(hash2)
 
@@ -115,30 +96,28 @@ describe("Repository base functionality", () => {
         // the async repo does not have a way to directly alter entities in the
         // head store)
         let changes2: Change[] = [
-            sourceStore.insertOne(new DummyEntity({ id: 'entity2', name: 'entity2', pageId: 'page1' })),
+            sourceStore.insertOne(new Note({ id: 'entity2', name: 'entity2', pageId: 'page1' })),
         ]
         let delta2 = Delta.fromChanges(changes2)
         await repo2.commit(delta2, 'Second commit')
 
         // Pull from repo2 to repo1
-        await repo1.pull(repo2)
+        await repo.pull(repo2)
 
         let hashAfterChange = repo2.hashTree.rootHash()
-        let hashAfterPull = repo1.hashTree.rootHash()
+        let hashAfterPull = repo.hashTree.rootHash()
         expect(hashAfterChange).toEqual(hashAfterPull)
     });
 
     test("Remove page with note and do integrity check", async () => {
-        // Create a dummy repo with two pages (both with a note)
-        let repo = new AsyncInMemoryRepository()
-        await repo.init('dev1')
+        // The repo is created in beforeEach. We can just use it
 
         let sourceStore = new InMemoryStore()
         let changes: Change[] = [
-            sourceStore.insertOne(new DummyPage({ id: 'page1' })),
-            sourceStore.insertOne(new DummyEntity({ id: 'entity1', name: 'entity1', pageId: 'page1' })),
-            sourceStore.insertOne(new DummyPage({ id: 'page2' })),
-            sourceStore.insertOne(new DummyEntity({ id: 'entity2', name: 'entity2', pageId: 'page2' })),
+            sourceStore.insertOne(new Page({ id: 'page1', name: 'Page 1' })),
+            sourceStore.insertOne(new Note({ id: 'entity1', name: 'entity1', pageId: 'page1' })),
+            sourceStore.insertOne(new Page({ id: 'page2' , name: 'Page 2' })),
+            sourceStore.insertOne(new Note({ id: 'entity2', name: 'entity2', pageId: 'page2' })),
         ]
         let delta = Delta.fromChanges(changes)
         await repo.commit(delta, 'Initial commit')
@@ -179,15 +158,6 @@ describe("Repository base functionality", () => {
         expect(rootHash).toEqual(commit.snapshotHash)
     });
 
-    test("Sync (pull, automerge, push)", async () => {
-
-    });
-
-    test("Sync with conflict", async () => {
-    });
-});
-
-
-describe("Repository pull and sync tests", () => {
-
+    // Add sync with conflict
+    // Automerge
 });

@@ -1,7 +1,8 @@
 import { Commit } from "../version-control/Commit";
-import { BaseAsyncRepository, InternalRepoUpdate, RepoUpdateData } from "../repository/BaseRepository";
+import { Repository, RepoUpdateData } from "../repository/Repository";
 import { ChangeType } from "../../model/Change";
 import { CommitGraph } from "../version-control/CommitGraph";
+import { InternalRepoUpdate } from "../repository/StorageAdapter";
 import { getLogger } from "../../logging";
 
 let log = getLogger('SyncUtils')
@@ -28,7 +29,7 @@ let log = getLogger('SyncUtils')
  *   conflict - the senior node merges the junior commit.
  */
 
-export async function autoMergeForSync(repo: BaseAsyncRepository, localBranchName: string) {
+export async function autoMergeForSync(repo: Repository, localBranchName: string) {
     /**
      * Merge remote commits into the local branch. Follow the rules outlined
      * in the sync procedure above (SyncUtils.ts)
@@ -155,9 +156,9 @@ export async function autoMergeForSync(repo: BaseAsyncRepository, localBranchNam
                             let forwardLC: any; // To avoid TS error
                             let reverseLC: any;
                             [entId, forwardLC, reverseLC] = localChange.data // components of the local entity delta
-                            if (forwardLC.hasOwnProperty(key)) {
-                                delete forwardLC[key]
-                                delete reverseLC[key]
+                            if (Object.prototype.hasOwnProperty.call(forwardLC, key)) {
+                                delete forwardLC[key];
+                                delete reverseLC[key];
                             }
                         }
                         localCommit.delta.removeChange(entityId)
@@ -199,7 +200,7 @@ export async function autoMergeForSync(repo: BaseAsyncRepository, localBranchNam
 }
 
 
-export function inferRepoChangesFromGraphUpdate(localGraph: CommitGraph, remoteGraph: CommitGraph, newCommitsFull: Commit[]): InternalRepoUpdate {
+export function inferRepoChangesFromGraphs(localGraph: CommitGraph, remoteGraph: CommitGraph): InternalRepoUpdate {
     let localSet = new Set(localGraph.commits().map((c) => c.id))
     let remoteSet = new Set(remoteGraph.commits().map((c) => c.id))
 
@@ -211,13 +212,6 @@ export function inferRepoChangesFromGraphUpdate(localGraph: CommitGraph, remoteG
 
     // Infer missing commits from the commit graph
     let addedCommits = remoteGraph.commits().filter((c) => !localSet.has(c.id))
-
-    // Confirm that all missing commits are supplied
-    let missingCommitIdSet = new Set(addedCommits.map((c) => c.id))
-    let missingCommitsSupplied = newCommitsFull.every((commit) => missingCommitIdSet.has(commit.id))
-    if (!missingCommitsSupplied) {
-        throw new Error("Missing commits not supplied")
-    }
 
     // Infer the branch changes
     let localBranches = localGraph.branches()
@@ -241,7 +235,33 @@ export function inferRepoChangesFromGraphUpdate(localGraph: CommitGraph, remoteG
     // Sanity checks?
 
     return {
-        addedCommits: newCommitsFull,
+        addedCommits: addedCommits,
+        removedCommits: removedCommits,
+        addedBranches: addedBranches,
+        updatedBranches: updatedBranches,
+        removedBranches: removedBranches
+    }
+}
+
+
+export function sanityCheckAndHydrateInternalRepoUpdate(repoUpdate: InternalRepoUpdate, newCommitsWithDeltas: Commit[]){
+    let {
+        addedCommits,
+        removedCommits,
+        addedBranches,
+        updatedBranches,
+        removedBranches
+    } = repoUpdate
+
+    // Check that all added are in newCommits by id sets
+    let newCommitsSet = new Set(newCommitsWithDeltas.map(c => c.id));
+    for (let commit of addedCommits) {
+        if (!newCommitsSet.has(commit.id)) {
+            throw new Error(`Added commit ${commit.id} not found in new commits`);
+        }
+    }
+    return {
+        addedCommits: newCommitsWithDeltas,
         removedCommits: removedCommits,
         addedBranches: addedBranches,
         updatedBranches: updatedBranches,
