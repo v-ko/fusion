@@ -5,7 +5,7 @@ import { StorageAdapter, InternalRepoUpdate } from "./StorageAdapter";
 import { inferRepoChangesFromGraphs, sanityCheckAndHydrateInternalRepoUpdate } from "../management/SyncUtils";
 import { Delta, DeltaData, squishDeltas } from "../../model/Delta";
 import { createId } from "../../util/base";
-import { HashTree, buildHashTree, updateHashTree } from "../version-control/HashTree";
+import { HangingSubtreesError, HashTree, buildHashTree, updateHashTree } from "../version-control/HashTree";
 import { InMemoryStore, IndexConfig } from "../domain-store/InMemoryStore";
 import { InMemoryStorageAdapter } from "./InMemoryStorageAdapter";
 import { IndexedDBStorageAdapter } from "./IndexedDB_storageAdapter";
@@ -121,7 +121,7 @@ export class Repository {
         }
 
         repo._hashTree = await buildHashTree(repo.headStore);
-        await repo.pull(repo._storageAdapter);
+        await repo.hydrateCacheFromStorageAdater();
         log.info(`Repository opened with caching enabled. Using storage adapter: ${config.name}`);
         return repo;
     }
@@ -159,7 +159,7 @@ export class Repository {
         }
         return this._hashTree;
     }
-    
+
     async getCommitGraph(): Promise<CommitGraph> {
         if (this._isCaching) {
             // We don't clone here for performance reasons, but it means the
@@ -200,6 +200,10 @@ export class Repository {
         try {
             await updateHashTree(this.hashTree, this.headStore, delta)
         } catch (e) {
+            this.headStore.applyDelta(delta.reversed()); // Restore the store state, commit is unsuccessful
+            if (e instanceof HangingSubtreesError) {
+                throw Error('Error updating hashtree. You\'re probably trying to commit objects to the store who\'s parents are not present in it. Error: ' + e)
+            }
             throw Error('Error updating hash tree: ' + e)
         }
         let snapshotHash = this.hashTree.rootHash()

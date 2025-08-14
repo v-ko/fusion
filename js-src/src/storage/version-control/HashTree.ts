@@ -9,6 +9,13 @@ const log = getLogger('HashTree')
 
 const subtleCrypto = cryptoModule();
 
+export class HangingSubtreesError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = "HangingSubtreesError";
+    }
+}
+
 function sortObjectProperties(obj: any, depth: number = 1): any {
     if (depth > 3) {
         throw new Error("Depth exceeded: This function supports sorting up to 3 levels deep only.");
@@ -79,8 +86,8 @@ export class HashTreeNode {
             entityId: this.entityId,
             parentId: this.parentId,
             entityDataHash: this.entityDataHash,
-            hash: this.hash,
-            hashOutdated: this.hashOutdated,
+            hash: this._hash,
+            hashOutdated: this._hashOutdated,
             removed: this.removed,
             childrenSortOutdated: this.childrenSortOutdated,
             children: this.childrenSorted.map(child => child.data())
@@ -190,7 +197,6 @@ export class HashTreeNode {
         const childHashes = this.childrenSorted.map((child) => child.hash);
         this._hash = await hash(this.entityDataHash, childHashes);
         this._hashOutdated = false;
-        this.hash
     }
 }
 
@@ -202,6 +208,18 @@ export class HashTree {
 
     constructor() {
         this.createSuperRoot();
+    }
+
+    data(): any { // For debugging mostly
+        return {
+            superRoot: this.superRoot ? this.superRoot.data() : null,
+            nodes: Object.values(this.nodes).map(node => node.data()),
+            tmpSubtrees: Object.entries(this._tmpSubtrees).map(([parentId, nodes]) => ({
+                parentId,
+                nodes: nodes.map(node => node.data())
+            })),
+            removedNodeCleanupNeeded: this._removedNodeCleanupNeeded
+        }
     }
 
     get removedNodeCleanupNeeded(): boolean {
@@ -334,7 +352,7 @@ export class HashTree {
 
         // Check for hanging subtrees
         if (Object.keys(this._tmpSubtrees).length > 0) {
-            throw Error("Cannot update hash: hanging tmp subtrees");
+            throw new HangingSubtreesError("Cannot update hash: hanging tmp subtrees: " + JSON.stringify(this.data()));
         }
 
         // Sort children where needed

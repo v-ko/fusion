@@ -457,9 +457,8 @@ export class StorageServiceActual implements StorageServiceActualInterface {
         let repoManager = this.repoManagers[projectId];
         if (!repoManager) {
             repoManager = new ProjectStorageManager(projectStorageConfig);
-            this.repoManagers[projectId] = repoManager;
             await repoManager.loadProject();
-
+            this.repoManagers[projectId] = repoManager;
             this.repoRefCounts[projectId] = 0;
 
             log.info('Initialized repo manager for project', projectId);
@@ -496,9 +495,10 @@ export class StorageServiceActual implements StorageServiceActualInterface {
 
         if (this.repoRefCounts[projectId] <= 0) {
             let repoManager = this.repoManagers[projectId];
-            delete this.repoManagers[projectId];
-            delete this.repoRefCounts[projectId];
             repoManager.shutdown();
+            
+            delete this.repoRefCounts[projectId];
+            delete this.repoManagers[projectId];
             log.info('Unloaded repo for project', projectId);
         }
     }
