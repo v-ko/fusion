@@ -26,6 +26,10 @@ export class Rectangle {
     data(): RectangleData {
         return this._data
     }
+    copy(): Rectangle {
+        return new Rectangle([...this._data]);
+    }
+
     equals(other: Rectangle): boolean {
         for (let i = 0; i < 4; i++) {
             if (this._data[i] !== other._data[i]) {
