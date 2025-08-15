@@ -1,4 +1,4 @@
-import { Commit } from "../version-control/Commit";
+import { Commit, CommitMetadata } from "../version-control/Commit";
 import { CommitGraph } from "../version-control/CommitGraph";
 
 export interface BranchMetadata {
@@ -6,12 +6,16 @@ export interface BranchMetadata {
     headCommitId: string | null;
 }
 
-export interface InternalRepoUpdate {
-    addedCommits: Commit[];
-    removedCommits: Commit[];
+export interface InternalRepoUpdateNoDeltas {
+    addedCommits: CommitMetadata[];
+    removedCommits: CommitMetadata[];
     addedBranches: BranchMetadata[];
     updatedBranches: BranchMetadata[];
     removedBranches: BranchMetadata[];
+}
+
+export interface InternalRepoUpdate extends InternalRepoUpdateNoDeltas {
+    addedCommits: Commit[];
 }
 
 export interface StorageAdapter {

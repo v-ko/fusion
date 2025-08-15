@@ -1,6 +1,6 @@
 import { Delta } from "../../model/Delta";
 import { InMemoryStore } from "./InMemoryStore";
-import { indexConfigs, Page, Note } from "fusion/storage/test-utils";
+import { indexConfigs, DummyPage, DummyNote } from "fusion/storage/test-utils";
 
 describe("InMemoryStore", () => {
     let store = new InMemoryStore(indexConfigs);
@@ -10,7 +10,7 @@ describe("InMemoryStore", () => {
     });
 
     test("Entity CRUD operations", () => {
-        let entity = new Page({
+        let entity = new DummyPage({
             id: "123",
             name: "Test Page",
         })
@@ -37,11 +37,11 @@ describe("InMemoryStore", () => {
     // Test find by id, parent-id, type and prop
     // Add a page and a note to the store and test the find method
     test("Find by id, parent-id, type and prop", () => {
-        let page = new Page({
+        let page = new DummyPage({
             id: "123",
             name: "Test Page",
         })
-        let note = new Note({
+        let note = new DummyNote({
             id: "456",
             name: "Test Note",
             pageId: "123"
@@ -59,10 +59,10 @@ describe("InMemoryStore", () => {
         expect(foundNote).toEqual(note);
 
         // Test find by type
-        let foundPage2 = store.findOne({ type: Page });
+        let foundPage2 = store.findOne({ type: DummyPage });
         expect(foundPage2).toEqual(page);
 
-        let foundNote2 = store.findOne({ type: Note });
+        let foundNote2 = store.findOne({ type: DummyNote });
         expect(foundNote2).toEqual(note);
 
         // Test find by prop
@@ -75,16 +75,16 @@ describe("InMemoryStore", () => {
     // first note. Then infer the delta from the changes, reverse it and
     // infer that the repo is empty
     test("Delta operations", () => {
-        let page = new Page({
+        let page = new DummyPage({
             id: "123",
             name: "Test Page",
         })
-        let note1 = new Note({
+        let note1 = new DummyNote({
             id: "456",
             name: "Test Note 1",
             pageId: "123"
         });
-        let note2 = new Note({
+        let note2 = new DummyNote({
             id: "789",
             name: "Test Note 2",
             pageId: "123"
@@ -101,7 +101,7 @@ describe("InMemoryStore", () => {
         // Check that the repo has copied the entity (so that alterations cannot
         // leak over the repo interface)
         let repoNote2 = store.findOne({ id: "789" });
-        expect((repoNote2 as Note)._data.name).toBe("Test Note 2");
+        expect((repoNote2 as DummyNote)._data.name).toBe("Test Note 2");
 
         let delta = Delta.fromChanges(changes);
 

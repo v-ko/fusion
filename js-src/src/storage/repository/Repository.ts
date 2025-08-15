@@ -2,7 +2,7 @@ import { getLogger } from "../../logging";
 import { Commit, CommitData } from "../version-control/Commit";
 import { CommitGraph, CommitGraphData } from "../version-control/CommitGraph";
 import { StorageAdapter, InternalRepoUpdate } from "./StorageAdapter";
-import { inferRepoChangesFromGraphs, sanityCheckAndHydrateInternalRepoUpdate } from "../management/SyncUtils";
+import { inferRepoChangesFromGraphs, sanityCheckAndHydrateInternalRepoUpdate } from "../management/sync-utils";
 import { Delta, DeltaData, squishDeltas } from "../../model/Delta";
 import { createId } from "../../util/base";
 import { HangingSubtreesError, HashTree, buildHashTree, updateHashTree } from "../version-control/HashTree";
@@ -18,6 +18,13 @@ let _inmemadapter_instances_by_id: Map<string, InMemoryStorageAdapter> = new Map
 
 export function clearInMemoryAdapterInstances() {
     _inmemadapter_instances_by_id.clear();
+}
+
+export class RepositoryIntegrityError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = "RepositoryIntegrityError";
+    }
 }
 
 export interface StorageAdapterArgs {
@@ -40,13 +47,33 @@ export interface RepoUpdateData {
     newCommits: CommitData[];
 }
 
+export async function getStorageAdapter(config: StorageAdapterConfig): Promise<StorageAdapter> {
+    if (config.name === 'InMemory') {
+        return new InMemoryStorageAdapter();
+    } else if (config.name === 'IndexedDB') {
+        const { projectId } = config.args;
+        const storageAdapter = new IndexedDBStorageAdapter(projectId);
+        await storageAdapter.initialize();
+        return storageAdapter;
+    } else if (config.name === 'InMemorySingletonForTesting') {
+        const { projectId } = config.args;
+        if (!_inmemadapter_instances_by_id.has(projectId)) {
+            const inMemAdapter = new InMemoryStorageAdapter();
+            _inmemadapter_instances_by_id.set(projectId, inMemAdapter);
+        }
+        return _inmemadapter_instances_by_id.get(projectId)!;
+    } else {
+        throw new Error(`Unknown storage adapter type: ${config.name}`);
+    }
+}
+
 export class Repository {
-    private _storageAdapter: StorageAdapter;
+    _storageAdapter: StorageAdapter;
     private _adapterConfig: StorageAdapterConfig;
     private _isCaching: boolean;
     private _indexConfigs: readonly IndexConfig[];
 
-    private _currentBranch: string;
+    _currentBranch: string;
     private _headStore: InMemoryStore | null = null;
     _commitGraph: CommitGraph = new CommitGraph();  // Public only for testing purposes
     private _commitById: Map<string, Commit> = new Map();
@@ -74,28 +101,8 @@ export class Repository {
         }
     }
 
-    private static async _getStorageAdapter(config: StorageAdapterConfig): Promise<StorageAdapter> {
-        if (config.name === 'InMemory') {
-            return new InMemoryStorageAdapter();
-        } else if (config.name === 'IndexedDB') {
-            const { projectId } = config.args;
-            const storageAdapter = new IndexedDBStorageAdapter(projectId);
-            await storageAdapter.initialize();
-            return storageAdapter;
-        } else if (config.name === 'InMemorySingletonForTesting') {
-            const { projectId } = config.args;
-            if (!_inmemadapter_instances_by_id.has(projectId)) {
-                const inMemAdapter = new InMemoryStorageAdapter();
-                _inmemadapter_instances_by_id.set(projectId, inMemAdapter);
-            }
-            return _inmemadapter_instances_by_id.get(projectId)!;
-        } else {
-            throw new Error(`Unknown storage adapter type: ${config.name}`);
-        }
-    }
-
     private static async init(config: StorageAdapterConfig, enableCaching: boolean, indexConfigs: readonly IndexConfig[]): Promise<Repository> {
-        const storageAdapter = await this._getStorageAdapter(config);
+        const storageAdapter = await getStorageAdapter(config);
         const repo = new Repository(storageAdapter, config, enableCaching, indexConfigs);
         // Always init with defualt current branch. There's no repo without
         // a head. And then we'll pull from wherever
@@ -368,16 +375,17 @@ export class Repository {
         // Revert the head store state by applying the deltas for the removed
         // commits in reverse
         let commitsToRevert = branchCommits.slice(targetIndex + 1)
-        const reversedDeltas = commitsToRevert.map(c => new Delta(c.deltaData as DeltaData).reversed().data);
+        let commitsToRevertFull = await this.getCommits(commitsToRevert.map(c => c.id));
+        const reversedDeltas = commitsToRevertFull.map(c => new Delta(c.deltaData as DeltaData).reversed().data);
         const squishedDelta = squishDeltas(reversedDeltas);
         this.headStore.applyDelta(squishedDelta);
 
 
         // Remove from commit graph and local commits
-        commitsToRevert.forEach((commit) => {
+        for (let commit of commitsToRevert) {
             this._commitById.delete(commit.id)
             commitGraph.removeCommit(commit.id)
-        })
+        }
 
         // Update hash tree
         await updateHashTree(this.hashTree, this.headStore, squishedDelta)
@@ -386,7 +394,7 @@ export class Repository {
         // Assert that the hash is correct
         let snapshotHash = this.hashTree.rootHash()
         if (snapshotHash !== targetCommit.snapshotHash) {
-            throw new Error("Snapshot hash of the head store state does not match the one of the applied commit (on reset)")
+            throw new RepositoryIntegrityError("Snapshot hash of the head store state does not match the one of the applied commit (on reset)")
         }
 
         // Persist changes
@@ -469,7 +477,7 @@ export class Repository {
             let snapshotHash = this.hashTree.rootHash()
             if (snapshotHash !== remoteHeadCommit!.snapshotHash) {
                 console.log(remoteHeadCommit, this.hashTree)
-                throw new Error("Snapshot hash mismatch after pull")
+                throw new RepositoryIntegrityError("Snapshot hash mismatch after pull")
             }
         }
 
@@ -496,4 +504,50 @@ export class Repository {
         log.info('Repo close called. Closing storage adapter.');
         this._storageAdapter.close();
     }
+}
+
+
+export  async function verifyRepositoryIntegrity(repository: Repository | StorageAdapter, branchName: string): Promise<boolean> {
+    log.info(`Verifying integrity of repository for branch "${branchName}"`);
+
+    const commitGraph: CommitGraph = await repository.getCommitGraph();
+    const branchCommitsMinimal = commitGraph.branchCommits(branchName);
+
+    if (branchCommitsMinimal.length === 0) {
+        log.info("No commits in branch, integrity check skipped.");
+        return true;
+    }
+
+    const commitIds = branchCommitsMinimal.map(c => c.id);
+    const branchCommits = await repository.getCommits(commitIds);
+
+    const store = new InMemoryStore();
+    let hashTree: HashTree = await buildHashTree(store);
+
+    for (const commit of branchCommits) {
+        log.info(`Verifying commit ${commit.id}`);
+        const delta = new Delta(commit.deltaData);
+
+        // Apply delta to the in-memory store
+        store.applyDelta(delta);
+
+        // Update the hash tree
+        await updateHashTree(hashTree, store, delta);
+
+        // Compare the hash tree's root hash with the commit's snapshot hash
+        const calculatedHash = hashTree.rootHash();
+        if (calculatedHash !== commit.snapshotHash) {
+            let deltaSize = Object.keys(commit.deltaData).length
+            let deltaDataStr = '';
+            if (deltaSize < 100) {
+                deltaDataStr = JSON.stringify(commit.deltaData, null, 2);
+            }
+            log.error(`Integrity check failed at commit ${commit.id}: expected hash ${commit.snapshotHash}, but got ${calculatedHash}. Delta size is ${deltaSize}. Delta data:\n ${deltaDataStr}`);
+
+            return false;
+        }
+    }
+
+    log.info("Repository integrity verified successfully.");
+    return true;
 }

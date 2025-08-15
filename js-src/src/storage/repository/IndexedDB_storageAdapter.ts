@@ -1,6 +1,6 @@
-import { Commit, CommitData } from "../version-control/Commit";
+import { Commit, CommitMetadataData } from "../version-control/Commit";
 import { openDB, DBSchema, IDBPDatabase, deleteDB } from 'idb';
-import { StorageAdapter, InternalRepoUpdate, BranchMetadata } from "./StorageAdapter";
+import { StorageAdapter, BranchMetadata, InternalRepoUpdate } from "./StorageAdapter";
 import { DeltaData } from "../../model/Delta";
 import { CommitGraph } from "../version-control/CommitGraph";
 import { DebugConnectionTracker, wrapDbWithTransactionDebug } from "../management/DebugUtils";
@@ -23,7 +23,7 @@ interface RepoDB extends DBSchema {
     };
     commits: {
         key: string;
-        value: CommitData;
+        value: CommitMetadataData;
         indexes: { 'by-id': string };
     };
     deltas: {
@@ -144,8 +144,8 @@ export class IndexedDBStorageAdapter implements StorageAdapter {
                     if (commitData) {
                         const delta = await deltasStore.get(commitData.id);
                         if (delta) {
-                            commitData.deltaData = delta.delta;
-                            commits.push(new Commit(commitData));
+                            // commitData.deltaData = delta.delta;
+                            commits.push(new Commit({...commitData, deltaData: delta.delta}));
                         } else {
                             log.error('Delta not found for commit ' + commitData.id);
                         }

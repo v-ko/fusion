@@ -192,10 +192,10 @@ export class Delta {
             // Nothing to do for empty changes
         } else {
             log.error(
-                'Irrational or unhandled delta sequence:',
-                firstChange,
-                '->',
-                change
+                '[mergeWithPriority] Irrational or unhandled delta sequence. Merging change:\n',
+                change,
+                ' INTO:\n',
+                firstChange
             );
         }
 

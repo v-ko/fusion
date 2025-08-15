@@ -1,11 +1,11 @@
 import { DEFAULT_INDEX_CONFIGS_LIST, InMemoryStore } from "../domain-store/InMemoryStore";
 import { Change } from "../../model/Change";
-import { Commit } from "../version-control/Commit";
+import { CommitMetadata } from "../version-control/Commit";
 import { buildHashTree } from "../version-control/HashTree";
 import { Delta } from "../../model/Delta";
 import { Repository, StorageAdapterConfig } from "fusion/storage/repository/Repository";
 import { createId } from "../../util/base";
-import { Page, Note } from "../test-utils";
+import { DummyPage, DummyNote } from "../test-utils";
 
 
 
@@ -31,11 +31,11 @@ describe("Repository base functionality", () => {
         let sourceStore = new InMemoryStore()
 
         let changes: Change[] = [
-            sourceStore.insertOne(new Page({ id: 'page1', name: 'Page 1' })),
-            sourceStore.insertOne(new Note({ id: 'entity1', name: 'entity1', pageId: 'page1' })),
+            sourceStore.insertOne(new DummyPage({ id: 'page1', name: 'Page 1' })),
+            sourceStore.insertOne(new DummyNote({ id: 'entity1', name: 'entity1', pageId: 'page1' })),
         ]
         let delta = Delta.fromChanges(changes)
-        let commit: Commit
+        let commit: CommitMetadata
         try{
             commit = await repo.commit(delta, 'Initial commit')
         } catch (e) {
@@ -51,7 +51,7 @@ describe("Repository base functionality", () => {
 
         // Reverse
         let reverseDelta = delta.reversed()
-        let reverseCommit: Commit
+        let reverseCommit: CommitMetadata
         try {
             reverseCommit = await repo.commit(reverseDelta, 'Reverse commit')
         } catch (e) {
@@ -78,8 +78,8 @@ describe("Repository base functionality", () => {
         let sourceStore = new InMemoryStore()
 
         let changes: Change[] = [
-            sourceStore.insertOne(new Page({ id: 'page1' , name: 'Page 1' })),
-            sourceStore.insertOne(new Note({ id: 'entity1', name: 'entity1', pageId: 'page1' })),
+            sourceStore.insertOne(new DummyPage({ id: 'page1' , name: 'Page 1' })),
+            sourceStore.insertOne(new DummyNote({ id: 'entity1', name: 'entity1', pageId: 'page1' })),
         ]
 
         let delta = Delta.fromChanges(changes)
@@ -96,7 +96,7 @@ describe("Repository base functionality", () => {
         // the async repo does not have a way to directly alter entities in the
         // head store)
         let changes2: Change[] = [
-            sourceStore.insertOne(new Note({ id: 'entity2', name: 'entity2', pageId: 'page1' })),
+            sourceStore.insertOne(new DummyNote({ id: 'entity2', name: 'entity2', pageId: 'page1' })),
         ]
         let delta2 = Delta.fromChanges(changes2)
         await repo2.commit(delta2, 'Second commit')
@@ -114,10 +114,10 @@ describe("Repository base functionality", () => {
 
         let sourceStore = new InMemoryStore()
         let changes: Change[] = [
-            sourceStore.insertOne(new Page({ id: 'page1', name: 'Page 1' })),
-            sourceStore.insertOne(new Note({ id: 'entity1', name: 'entity1', pageId: 'page1' })),
-            sourceStore.insertOne(new Page({ id: 'page2' , name: 'Page 2' })),
-            sourceStore.insertOne(new Note({ id: 'entity2', name: 'entity2', pageId: 'page2' })),
+            sourceStore.insertOne(new DummyPage({ id: 'page1', name: 'Page 1' })),
+            sourceStore.insertOne(new DummyNote({ id: 'entity1', name: 'entity1', pageId: 'page1' })),
+            sourceStore.insertOne(new DummyPage({ id: 'page2' , name: 'Page 2' })),
+            sourceStore.insertOne(new DummyNote({ id: 'entity2', name: 'entity2', pageId: 'page2' })),
         ]
         let delta = Delta.fromChanges(changes)
         await repo.commit(delta, 'Initial commit')

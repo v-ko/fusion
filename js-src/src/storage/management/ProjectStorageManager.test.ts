@@ -23,7 +23,7 @@ describe("ProjectStorageManager base functionality", () => {
         projectStorageConfig = {
             deviceBranchName: 'dev1',
             storeIndexConfigs: indexConfigs,
-            onDeviceRepo: INMEM_PROJECT_STORAGE_CONFIG,
+            onDeviceStorageAdapter: INMEM_PROJECT_STORAGE_CONFIG,
             onDeviceMediaStore: {
                 name: "InMemory",
                 args: { projectId }

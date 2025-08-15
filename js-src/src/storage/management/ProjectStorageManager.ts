@@ -1,4 +1,4 @@
-import { Repository, StorageAdapterConfig } from "../repository/Repository";
+import { getStorageAdapter, Repository, RepositoryIntegrityError, StorageAdapterConfig, verifyRepositoryIntegrity } from "../repository/Repository";
 import { MediaStoreAdapter } from "../media-store/MediaStoreAdapter";
 import { InMemoryMediaStoreAdapter } from "../media-store/InMemoryMediaStoreAdapter";
 import { CacheMediaStoreAdapter } from "../media-store/CacheMediaStoreAdapter";
@@ -10,7 +10,7 @@ let log = getLogger('ProjectStorageManager');
 export interface ProjectStorageConfig {
     deviceBranchName: string;
     storeIndexConfigs: readonly IndexConfig[];
-    onDeviceRepo: StorageAdapterConfig;  // IndexedDB, DesktopServer, Cloud (for thin clients), InMemory for testing
+    onDeviceStorageAdapter: StorageAdapterConfig;  // IndexedDB, DesktopServer, Cloud (for thin clients), InMemory for testing
     onDeviceMediaStore: MediaStoreConfig;  // CacheAPI, DesktopServer, Cloud (for thin clients), InMemory for testing
 }
 
@@ -82,7 +82,7 @@ export class ProjectStorageManager {
         this._config = config
 
         // Assert that the adapter local branches and the device branch are the same
-        if (this._config.deviceBranchName !== this._config.onDeviceRepo.args.localBranchName) {
+        if (this._config.deviceBranchName !== this._config.onDeviceStorageAdapter.args.localBranchName) {
             throw new Error("Device branch name and on-device repo local branch name must match")
         }
     }
@@ -105,11 +105,20 @@ export class ProjectStorageManager {
         return this.config.deviceBranchName
     }
     async loadProject() {
-        this._onDeviceRepo = await Repository.open(this.config.onDeviceRepo, true, this.config.storeIndexConfigs)
+        try{
+            this._onDeviceRepo = await Repository.open(this.config.onDeviceStorageAdapter, true, this.config.storeIndexConfigs)
+        } catch (e) {
+            if (e instanceof RepositoryIntegrityError) {
+                let storageAdapter = await getStorageAdapter(this.config.onDeviceStorageAdapter);
+                await verifyRepositoryIntegrity(storageAdapter, this.config.deviceBranchName);
+            } else {
+                throw e;
+            }
+        }
         this._localMediaStore = await initMediaStore(this.config.onDeviceMediaStore)
     }
     async createProject(): Promise<void> {
-        this._onDeviceRepo = await Repository.create(this.config.onDeviceRepo, true, this.config.storeIndexConfigs);
+        this._onDeviceRepo = await Repository.create(this.config.onDeviceStorageAdapter, true, this.config.storeIndexConfigs);
         this._localMediaStore = await initMediaStore(this.config.onDeviceMediaStore);
     }
 

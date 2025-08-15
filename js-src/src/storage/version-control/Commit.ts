@@ -4,45 +4,65 @@ import { getLogger } from "../../logging";
 const log = getLogger("Commit");
 
 
-export interface CommitData {
+export interface CommitMetadataData {
     id: string;
     parentId: string;
-    deltaData?: DeltaData;
     message: string;
     timestamp: number;
     snapshotHash: string;
 }
 
-export class Commit {
+export interface CommitData extends CommitMetadataData {
+    deltaData: DeltaData;
+}
+
+export class CommitMetadata {
     id: string;
     parentId: string;
-    deltaData?: DeltaData; // it's assumed to return a mutable object in some instances!
     snapshotHash: string;
     timestamp: number;
     message: string;
 
-    constructor(data: CommitData) {
+    constructor(data: CommitMetadataData) {
         this.id = data.id;
         this.parentId = data.parentId;
-        this.deltaData = data.deltaData;
         this.snapshotHash = data.snapshotHash;
         this.timestamp = data.timestamp;
         this.message = data.message;
     }
 
-    data(withDelta: boolean = true): CommitData {
+    data(): CommitMetadataData {
         return {
             id: this.id,
             parentId: this.parentId,
-            deltaData: withDelta ? structuredClone(this.deltaData) : undefined,
             snapshotHash: this.snapshotHash,
             timestamp: this.timestamp,
             message: this.message,
         };
     }
+}
+
+export class Commit extends CommitMetadata {
+    deltaData: DeltaData;
+
+    constructor(data: CommitData) {
+        super(data);
+        this.deltaData = data.deltaData;
+    }
+
+    data(): CommitData {
+        return {
+            ...super.data(),
+            deltaData: this.deltaData,
+        };
+    }
 
     get delta(): Delta {
-        let data = this.deltaData || {} as DeltaData;
-        return new Delta(data);
+        return new Delta(this.deltaData);
+    }
+
+    metadata(): CommitMetadata {
+        let { deltaData, ...metadata } = this.data();
+        return new CommitMetadata(metadata);
     }
 }

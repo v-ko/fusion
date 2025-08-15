@@ -6,7 +6,6 @@ import { Delta } from "../../model/Delta";
 export interface SearchFilter {
     id?: string;
     parentId?: string;
-    type?: new (...args: any[]) => Entity<EntityData>;
     [key: string]: any;
 }
 

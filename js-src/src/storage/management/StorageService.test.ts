@@ -3,7 +3,7 @@ import { Delta } from "fusion/model/Delta";
 import { ProjectStorageConfig } from "fusion/storage/management/ProjectStorageManager";
 import * as StorageServiceModule from "fusion/storage/management/StorageService";
 import { clearInMemoryAdapterInstances, RepoUpdateData, StorageAdapterConfig } from "fusion/storage/repository/Repository";
-import { indexConfigs, Note, Page } from "fusion/storage/test-utils";
+import { indexConfigs, DummyNote, DummyPage } from "fusion/storage/test-utils";
 import { createId } from "fusion/util/base";
 import { addChannel, Channel } from "fusion/registries/Channel";
 
@@ -63,7 +63,7 @@ describe("StorageService base functionality", () => {
         projectStorageConfig = {
             deviceBranchName: 'dev1',
             storeIndexConfigs: indexConfigs,
-            onDeviceRepo: INMEM_PROJECT_STORAGE_CONFIG,
+            onDeviceStorageAdapter: INMEM_PROJECT_STORAGE_CONFIG,
             onDeviceMediaStore: {
                 name: "InMemory",
                 args: { projectId }
@@ -133,8 +133,8 @@ describe("StorageService base functionality", () => {
         // If loadProject already triggered updates, remember how many
         const callsBefore = onUpdate.mock.calls.length;
 
-        const page = new Page({ id: createId(), name: "Test Page" });
-        const note = new Note({ id: createId(), pageId: page.id, name: "Test Note" });
+        const page = new DummyPage({ id: createId(), name: "Test Page" });
+        const note = new DummyNote({ id: createId(), pageId: page.id, name: "Test Note" });
         const delta = Delta.fromChanges([Change.create(page), Change.create(note)]);
 
         // commit is fire-and-forget (returns void)

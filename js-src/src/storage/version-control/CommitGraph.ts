@@ -1,9 +1,9 @@
 import { BranchMetadata } from "../repository/StorageAdapter";
-import { Commit, CommitData } from "./Commit";
+import { CommitMetadata, CommitMetadataData } from "./Commit";
 
 export interface CommitGraphData {
     branches: BranchMetadata[];
-    commits: CommitData[];
+    commits: CommitMetadataData[];
 }
 
 export class CommitGraph {
@@ -13,7 +13,7 @@ export class CommitGraph {
      * by subracting previous deltas.
      */
     private _branches: BranchMetadata[] = [];
-    private _commitsById: Map<string, Commit> = new Map();
+    private _commitsById: Map<string, CommitMetadata> = new Map();
 
     static fromData(data: CommitGraphData): CommitGraph { // , localBranchName: string
         let sg = new CommitGraph();
@@ -21,14 +21,14 @@ export class CommitGraph {
 
         // Create commit objects
         for (let commitData of data.commits) {
-            sg._commitsById.set(commitData.id, new Commit(commitData));
+            sg._commitsById.set(commitData.id, new CommitMetadata(commitData));
         }
         return sg;
     }
     data(): CommitGraphData {
         return {
             branches: structuredClone(this._branches),
-            commits: Array.from(this._commitsById.values()).map(c => c.data(false))
+            commits: Array.from(this._commitsById.values()).map(c => c.data())
         }
     }
     createBranch(branchName: string) {
@@ -61,7 +61,7 @@ export class CommitGraph {
         let branch = this._branches.find(b => b.name === branchName);
         return branch
     }
-    headCommit(branchName: string): Commit | null {
+    headCommit(branchName: string): CommitMetadata | null {
         let branch = this.branch(branchName);
         if (!branch) {
             throw new Error("[headCommit] Branch not found: " + branchName);
@@ -75,10 +75,10 @@ export class CommitGraph {
         }
         return commit;
     }
-    commits(): Commit[] {
+    commits(): CommitMetadata[] {
         return Array.from(this._commitsById.values());
     }
-    commitsBetween(startCommitId: string | null, endCommitId: string | null): Commit[] {
+    commitsBetween(startCommitId: string | null, endCommitId: string | null): CommitMetadata[] {
         //
         //
         /**
@@ -97,7 +97,7 @@ export class CommitGraph {
             }
 
             let commits = [endCommit];
-            let commit: Commit | undefined = endCommit;
+            let commit: CommitMetadata | undefined = endCommit;
             while (commit.parentId) {
                 commit = this.commit(commit.parentId);
                 if (!commit) {
@@ -124,7 +124,7 @@ export class CommitGraph {
 
             let allCommits = this.commits();
             let commits = [startCommit];
-            let commit: Commit | undefined = startCommit;
+            let commit: CommitMetadata | undefined = startCommit;
             while (commit) {
                 let nextCommit = allCommits.find(c => c.parentId === commit!.id);
                 if (!nextCommit) {
@@ -141,7 +141,7 @@ export class CommitGraph {
     removeCommit(commitId: string) {
         this._commitsById.delete(commitId);
     }
-    branchCommits(branchName: string): Commit[] {
+    branchCommits(branchName: string): CommitMetadata[] {
         let branch = this.branch(branchName);
         if (!branch) {
                 throw new Error("[branchCommits] Branch not found: " + branchName);
@@ -167,13 +167,13 @@ export class CommitGraph {
         commits.reverse();
         return commits;
     }
-    addCommit(commit: Commit) {
+    addCommit(commit: CommitMetadata) {
         // Drop the delta and copy the object
-        commit = new Commit(commit.data(false));
+        commit = new CommitMetadata(commit.data());
 
         this._commitsById.set(commit.id, commit);
     }
-    commit(commitId: string): Commit | undefined {
+    commit(commitId: string): CommitMetadata | undefined {
         let commit = this._commitsById.get(commitId);
         return commit;
     }

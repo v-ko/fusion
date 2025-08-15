@@ -405,6 +405,7 @@ async function buildSubtree(store: Store, tree: HashTree, startNode: HashTreeNod
 }
 
 export async function buildHashTree(store: Store): Promise<HashTree> {
+    let t0 = performance.now();
     let tree: HashTree = new HashTree();
 
     // For every root node - add it, and build its subtree
@@ -415,10 +416,13 @@ export async function buildHashTree(store: Store): Promise<HashTree> {
         await buildSubtree(store, tree, rootNode)
     }
     await tree.updateRootHash();
+    let t1 = performance.now();
+    log.info(`Hash tree built in ${t1 - t0} ms`);
     return tree
 }
 
 export async function updateHashTree(tree: HashTree, store: Store, delta: Delta) {
+    let t0 = performance.now();
     // For deletions - remove the node
     for (let change of delta.changes()) {
         let changeType = change.type();
@@ -457,4 +461,6 @@ export async function updateHashTree(tree: HashTree, store: Store, delta: Delta)
         }
     }
     await tree.updateRootHash();
+    let t1 = performance.now();
+    log.info(`Hash tree updated in ${t1 - t0} ms`);
 }

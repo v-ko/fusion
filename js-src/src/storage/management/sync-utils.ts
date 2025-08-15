@@ -1,8 +1,8 @@
-import { Commit } from "../version-control/Commit";
+import { Commit, CommitMetadata } from "../version-control/Commit";
 import { Repository, RepoUpdateData } from "../repository/Repository";
 import { ChangeType } from "../../model/Change";
 import { CommitGraph } from "../version-control/CommitGraph";
-import { InternalRepoUpdate } from "../repository/StorageAdapter";
+import { InternalRepoUpdate, InternalRepoUpdateNoDeltas } from "../repository/StorageAdapter";
 import { getLogger } from "../../logging";
 
 let log = getLogger('SyncUtils')
@@ -48,7 +48,7 @@ export async function autoMergeForSync(repo: Repository, localBranchName: string
     let seniorBranches = branches.sort((a, b) => seniorityMap.get(a.name)! - seniorityMap.get(b.name)!)
     let relevantBranches = seniorBranches.filter(b => b.name !== localBranchName)
 
-    let commitsByBranch = new Map<string, Commit[]>()
+    let commitsByBranch = new Map<string, CommitMetadata[]>()
     branches.forEach(b => commitsByBranch.set(b.name, commitGraph.branchCommits(b.name)))
 
     // * There should be a squish beforehand
@@ -65,16 +65,16 @@ export async function autoMergeForSync(repo: Repository, localBranchName: string
         // Get the last commit for each branch
         let currentCommits = relevantBranches.map(b => commitsByBranch.get(b.name)!.at(currentPos)!)
 
-        let dominantCommit = currentCommits[0]
+        let dominantCommitMetadata = currentCommits[0]
         for (let i = 1; i < currentCommits.length; i++) {
-            if (currentCommits[i].id !== dominantCommit.id) {
+            if (currentCommits[i].id !== dominantCommitMetadata.id) {
                 relevantBranches.splice(i, 1)
             }
         }
 
         // If the local commit's id is the same with the dominant - continue
         let localCommit = localBranchCommits.at(currentPos)
-        if (localCommit && localCommit.id === dominantCommit.id) {
+        if (localCommit && localCommit.id === dominantCommitMetadata.id) {
             currentPos++
             continue
         }
@@ -82,11 +82,11 @@ export async function autoMergeForSync(repo: Repository, localBranchName: string
         // (else)
         // Merge the commit from the most senior
         // Get the full commit with a delta
-        let responce = await repo.getCommits([dominantCommit.id])
+        let responce = await repo.getCommits([dominantCommitMetadata.id])
         if (responce.length === 0) {
             throw new Error("Full commit info not found")
         }
-        dominantCommit = responce[0]
+        let dominantCommit = responce[0]
 
         // - If we're not past the local branch head - there's been a simultaneous
         //   state alteration - call the merge with revert=commitsAhead
@@ -95,7 +95,8 @@ export async function autoMergeForSync(repo: Repository, localBranchName: string
         //   * There should be max 2 local commits ahead btw - one squished and one head.
 
         let commitsAheadCount = localBranchCommits.length - currentPos
-        let commitsAhead = localBranchCommits.slice(currentPos, commitsAheadCount)
+        let commitsAheadMetadata = localBranchCommits.slice(currentPos, commitsAheadCount)
+        let commitsAhead = await repo.getCommits(commitsAheadMetadata.map(c => c.id))
 
         // Start the merge
 
@@ -200,7 +201,7 @@ export async function autoMergeForSync(repo: Repository, localBranchName: string
 }
 
 
-export function inferRepoChangesFromGraphs(localGraph: CommitGraph, remoteGraph: CommitGraph): InternalRepoUpdate {
+export function inferRepoChangesFromGraphs(localGraph: CommitGraph, remoteGraph: CommitGraph): InternalRepoUpdateNoDeltas {
     let localSet = new Set(localGraph.commits().map((c) => c.id))
     let remoteSet = new Set(remoteGraph.commits().map((c) => c.id))
 
@@ -244,7 +245,7 @@ export function inferRepoChangesFromGraphs(localGraph: CommitGraph, remoteGraph:
 }
 
 
-export function sanityCheckAndHydrateInternalRepoUpdate(repoUpdate: InternalRepoUpdate, newCommitsWithDeltas: Commit[]){
+export function sanityCheckAndHydrateInternalRepoUpdate(repoUpdate: InternalRepoUpdateNoDeltas, newCommitsWithDeltas: Commit[]): InternalRepoUpdate{
     let {
         addedCommits,
         removedCommits,

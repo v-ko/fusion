@@ -17,14 +17,14 @@ export const indexConfigs: readonly IndexConfig[] = [
         name: 'by_class_name'
     }
 ];
-interface PageData extends EntityData {
+interface DummyPageData extends EntityData {
     name: string;
 }
 // mock Page entity subclass
 
-@entityType("Page")
-export class Page extends Entity<PageData> {
-    constructor(data: PageData) {
+@entityType("DummyPage")
+export class DummyPage extends Entity<DummyPageData> {
+    constructor(data: DummyPageData) {
         super(data);
     }
     get name(): string {
@@ -37,14 +37,14 @@ export class Page extends Entity<PageData> {
         return "";
     }
 }
-interface NoteData extends EntityData {
+interface DummyNoteData extends EntityData {
     name: string;
     pageId: string;
 }
 
-@entityType("Note")
-export class Note extends Entity<NoteData> {
-    constructor(data: NoteData) {
+@entityType("DummyNote")
+export class DummyNote extends Entity<DummyNoteData> {
+    constructor(data: DummyNoteData) {
         super(data);
     }
     get parentId(): string {

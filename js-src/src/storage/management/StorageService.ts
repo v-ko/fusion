@@ -496,7 +496,7 @@ export class StorageServiceActual implements StorageServiceActualInterface {
         if (this.repoRefCounts[projectId] <= 0) {
             let repoManager = this.repoManagers[projectId];
             repoManager.shutdown();
-            
+
             delete this.repoRefCounts[projectId];
             delete this.repoManagers[projectId];
             log.info('Unloaded repo for project', projectId);
@@ -570,21 +570,6 @@ export class StorageServiceActual implements StorageServiceActualInterface {
         // Commit to in-mem
         let commit = await projectStorageManager.onDeviceRepo.commit(new Delta(commitRequest.deltaData), commitRequest.message);
         console.log('Created commit', commit)
-
-        // Integrity check (TMP)
-        let hashTree = await buildHashTree(projectStorageManager.onDeviceRepo.headStore);
-        let currentHash = projectStorageManager.onDeviceRepo.hashTree.rootHash();
-
-        if (currentHash !== hashTree.rootHash()) {
-            log.error('Hash tree integrity check failed',
-                'Current hash:', currentHash,
-                'Expected hash:', hashTree.rootHash());
-            return;
-        }
-
-        // // Save in local storage
-        // log.info('Pulling the new commit from the adapter into the project inMem repo')
-        // await projectStorageManager.onDeviceRepo.pull(projectStorageManager.onDeviceRepo);
 
         // Notify subscribers
         let commitGraph = await this.repoManagers[commitRequest.projectId].onDeviceRepo.getCommitGraph()
