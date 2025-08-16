@@ -9,9 +9,14 @@ export const indexConfigs: readonly IndexConfig[] = [
         name: "id"
     },
     {
+        fields: [{ indexKey: "id" }],
+        isUnique: false,
+        name: "parentId"
+    },
+    {
         fields: [{
             indexKey: ENTITY_TYPE_INDEX_KEY,
-            allowedTypes: ['Page', 'Note']
+            allowedTypes: ['DummyPage', 'DummyNote']
         }],
         isUnique: false,
         name: 'by_class_name'

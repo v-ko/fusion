@@ -350,7 +350,7 @@ export class StorageServiceActual implements StorageServiceActualInterface {
         //     log.info(`StorageServiceActual heartbeat. ID: ${this.id}. Loaded repos: ${Object.keys(this.repoManagers).join(', ')}`);
         // }, 5000);
     }
-    get inWorker(): boolean {
+    inWorker(): boolean {
         // @ts-ignore: ServiceWorkerGlobalScope is global only in SW
         return typeof ServiceWorkerGlobalScope !== 'undefined' && self instanceof ServiceWorkerGlobalScope;
     }
@@ -366,7 +366,7 @@ export class StorageServiceActual implements StorageServiceActualInterface {
          * For the desktop-app and offline-webapp scenarios we intercept
          * media requests to serve the media files from the respective storage
          */
-        if (!this.inWorker) {
+        if (!this.inWorker()) {
             throw new Error('Media request interception can only be set up in a service worker context');
         }
 

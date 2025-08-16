@@ -39,10 +39,10 @@ export class Rectangle {
         return true;
     }
 
-    width(): number {
+    get width(): number {
         return this._data[2];
     }
-    height(): number {
+    get height(): number {
         return this._data[3];
     }
 

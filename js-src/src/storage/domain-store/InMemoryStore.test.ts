@@ -68,7 +68,7 @@ describe("InMemoryStore", () => {
         expect(foundNote2).toEqual(note);
 
         // Test find by prop
-        let foundNote3 = store.findOne({ name: "Test Note" });
+        let foundNote3 = store.findOne({ testProp: "Test Note" });
         expect(foundNote3).toEqual(note);
     });
 

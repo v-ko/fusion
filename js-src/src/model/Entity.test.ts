@@ -1,5 +1,5 @@
 import { DummyNote } from 'fusion/storage/test-utils';
-import { Entity, EntityData, dumpToDict, entityType, loadFromDict } from './Entity'
+import { dumpToDict, loadFromDict } from './Entity'
 
 
 test('Entity methods', () => {
@@ -8,7 +8,7 @@ test('Entity methods', () => {
 
     let outDict = e.data();
 
-    expect(outDict).toEqual({ id: '456', testProp: 'test2' });
+    expect(outDict).toEqual({ id: '456', parent_id: '', testProp: 'test2' });
     expect(leftovers).toEqual({ s: 'Note3' });
 });
 
