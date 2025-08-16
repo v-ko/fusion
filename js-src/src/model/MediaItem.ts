@@ -3,7 +3,6 @@ import { Entity, EntityData, entityType, getEntityId } from "./Entity";
 export interface MediaItemData extends EntityData {
     // It's flatter than other entities because it was designed for metadata and
     // nesting into note objects. But that may change
-    parentId: string;
     path: string;  // For project organization and FS storage (e.g. path relative to the project root and a name for the item)
     contentHash: string;  // Updated on content edit, enables id persistence through edits
     width: number;  // For rendering placeholders and doing geometry calculations
@@ -21,10 +20,6 @@ export class MediaItem extends Entity<MediaItemData> {
             id: getEntityId(),
             ...data
         });
-    }
-
-    get parentId(): string {
-        return this._data.parentId;
     }
 
     // Data access properties

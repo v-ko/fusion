@@ -33,13 +33,9 @@ export class DummyPage extends Entity<DummyPageData> {
     set name(name: string) {
         this._data.name = name;
     }
-    get parentId(): string {
-        return "";
-    }
 }
 interface DummyNoteData extends EntityData {
-    name: string;
-    pageId: string;
+    testProp: string;
 }
 
 @entityType("DummyNote")
@@ -48,12 +44,18 @@ export class DummyNote extends Entity<DummyNoteData> {
         super(data);
     }
     get parentId(): string {
-        return this._data.pageId;
+        return this._data.parent_id;
     }
-    get name(): string {
-        return this._data.name;
+    // get testProp(): string {
+    //     return this._data.name;
+    // }
+    // set testProp(name: string) {
+    //     this._data.name = name;
+    // }
+    get testProp(): string {
+        return this._data.testProp;
     }
-    set name(name: string) {
-        this._data.name = name;
+    set testProp(newVal: string) {
+        this._data.testProp = newVal;
     }
 }

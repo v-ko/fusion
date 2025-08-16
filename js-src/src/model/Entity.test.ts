@@ -1,37 +1,19 @@
+import { DummyNote } from 'fusion/storage/test-utils';
 import { Entity, EntityData, dumpToDict, entityType, loadFromDict } from './Entity'
 
-interface IDummyEntity extends EntityData {
-    testProp: string;
-}
-
-@entityType('DummyEntity')
-class DummyEntity extends Entity<IDummyEntity> {
-    get parentId(): string {
-        return '';
-    }
-    get testProp(): string {
-        return this._data.testProp;
-    }
-    set testProp(newVal: string) {
-        this._data.testProp = newVal;
-    }
-}
 
 test('Entity methods', () => {
-    let e = new DummyEntity({ id: '123', testProp: 'test' });
-    e = e.withId('456');
-    // e.replace({ id: 'Note2' });
+    let e = new DummyNote({ id: '456', parent_id: '', testProp: 'test' });
     let leftovers = e.replace_silent({ s: 'Note3', testProp: 'test2' });
 
-    let outDict = e.toObject();
+    let outDict = e.data();
 
-    expect(e.id).toBe('456');
     expect(outDict).toEqual({ id: '456', testProp: 'test2' });
     expect(leftovers).toEqual({ s: 'Note3' });
 });
 
 test('Entity copy', () => {
-    let e = new DummyEntity({ id: '123', testProp: 'test' });
+    let e = new DummyNote({ id: '123', parent_id: '', testProp: 'test' });
     let e2 = e.copy();
 
     e2.testProp = 'changed';
@@ -41,9 +23,9 @@ test('Entity copy', () => {
 });
 
 test('Entity serialization and deserialization', () => {
-    let e = new DummyEntity({ id: '123', testProp: 'test' });
+    let e = new DummyNote({ id: '123', parent_id: '', testProp: 'test' });
     let eDict = dumpToDict(e);
-    let e2 = loadFromDict(eDict) as DummyEntity;
+    let e2 = loadFromDict(eDict) as DummyNote;
 
     expect(e2._data).toEqual(e._data);
 });

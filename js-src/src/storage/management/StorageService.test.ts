@@ -133,8 +133,8 @@ describe("StorageService base functionality", () => {
         // If loadProject already triggered updates, remember how many
         const callsBefore = onUpdate.mock.calls.length;
 
-        const page = new DummyPage({ id: createId(), name: "Test Page" });
-        const note = new DummyNote({ id: createId(), pageId: page.id, name: "Test Note" });
+        const page = new DummyPage({ id: createId(), parent_id: '', name: "Test Page" });
+        const note = new DummyNote({ id: createId(), parent_id: page.id, testProp: "Test Note" });
         const delta = Delta.fromChanges([Change.create(page), Change.create(note)]);
 
         // commit is fire-and-forget (returns void)

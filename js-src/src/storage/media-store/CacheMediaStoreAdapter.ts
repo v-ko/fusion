@@ -69,7 +69,7 @@ export class CacheMediaStoreAdapter implements MediaStoreAdapter {
       mimeType: blob.type,
       size: blob.size,
       timeDeleted: undefined,
-      parentId: parentId
+      parent_id: parentId
     });
 
     // Create the cache key using MediaItem ID

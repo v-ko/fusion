@@ -12,6 +12,7 @@ describe("InMemoryStore", () => {
     test("Entity CRUD operations", () => {
         let entity = new DummyPage({
             id: "123",
+            parent_id: '',
             name: "Test Page",
         })
 
@@ -39,12 +40,13 @@ describe("InMemoryStore", () => {
     test("Find by id, parent-id, type and prop", () => {
         let page = new DummyPage({
             id: "123",
+            parent_id: '',
             name: "Test Page",
         })
         let note = new DummyNote({
             id: "456",
-            name: "Test Note",
-            pageId: "123"
+            testProp: "Test Note",
+            parent_id: "123"
         });
 
         store.insertOne(page);
@@ -77,17 +79,18 @@ describe("InMemoryStore", () => {
     test("Delta operations", () => {
         let page = new DummyPage({
             id: "123",
+            parent_id: '',
             name: "Test Page",
         })
         let note1 = new DummyNote({
             id: "456",
-            name: "Test Note 1",
-            pageId: "123"
+            testProp: "Test Note 1",
+            parent_id: "123"
         });
         let note2 = new DummyNote({
             id: "789",
-            name: "Test Note 2",
-            pageId: "123"
+            testProp: "Test Note 2",
+            parent_id: "123"
         });
 
         let changes = [
@@ -96,12 +99,12 @@ describe("InMemoryStore", () => {
             store.insertOne(note2),
         ]
 
-        note2._data.name = "Updated Note 2";
+        note2._data.testProp = "Updated Note 2";
 
         // Check that the repo has copied the entity (so that alterations cannot
         // leak over the repo interface)
         let repoNote2 = store.findOne({ id: "789" });
-        expect((repoNote2 as DummyNote)._data.name).toBe("Test Note 2");
+        expect((repoNote2 as DummyNote)._data.testProp).toBe("Test Note 2");
 
         let delta = Delta.fromChanges(changes);
 

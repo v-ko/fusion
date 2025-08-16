@@ -37,7 +37,7 @@ export class InMemoryMediaStoreAdapter implements MediaStoreAdapter {
             mimeType: blob.type,
             size: blob.size,
             timeDeleted: undefined,
-            parentId: parentId
+            parent_id: parentId
         });
 
         const storageKey = this._getStorageKey(mediaItem.id, contentHash);

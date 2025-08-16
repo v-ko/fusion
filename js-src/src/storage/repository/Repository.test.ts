@@ -31,8 +31,8 @@ describe("Repository base functionality", () => {
         let sourceStore = new InMemoryStore()
 
         let changes: Change[] = [
-            sourceStore.insertOne(new DummyPage({ id: 'page1', name: 'Page 1' })),
-            sourceStore.insertOne(new DummyNote({ id: 'entity1', name: 'entity1', pageId: 'page1' })),
+            sourceStore.insertOne(new DummyPage({ id: 'page1', parent_id: '', name: 'Page 1' })),
+            sourceStore.insertOne(new DummyNote({ id: 'entity1', testProp: 'entity1', parent_id: 'page1' })),
         ]
         let delta = Delta.fromChanges(changes)
         let commit: CommitMetadata
@@ -78,8 +78,8 @@ describe("Repository base functionality", () => {
         let sourceStore = new InMemoryStore()
 
         let changes: Change[] = [
-            sourceStore.insertOne(new DummyPage({ id: 'page1' , name: 'Page 1' })),
-            sourceStore.insertOne(new DummyNote({ id: 'entity1', name: 'entity1', pageId: 'page1' })),
+            sourceStore.insertOne(new DummyPage({ id: 'page1' , parent_id:'', name: 'Page 1' })),
+            sourceStore.insertOne(new DummyNote({ id: 'entity1', testProp: 'entity1', parent_id: 'page1' })),
         ]
 
         let delta = Delta.fromChanges(changes)
@@ -96,7 +96,7 @@ describe("Repository base functionality", () => {
         // the async repo does not have a way to directly alter entities in the
         // head store)
         let changes2: Change[] = [
-            sourceStore.insertOne(new DummyNote({ id: 'entity2', name: 'entity2', pageId: 'page1' })),
+            sourceStore.insertOne(new DummyNote({ id: 'entity2', testProp: 'entity2', parent_id: 'page1' })),
         ]
         let delta2 = Delta.fromChanges(changes2)
         await repo2.commit(delta2, 'Second commit')
@@ -114,10 +114,10 @@ describe("Repository base functionality", () => {
 
         let sourceStore = new InMemoryStore()
         let changes: Change[] = [
-            sourceStore.insertOne(new DummyPage({ id: 'page1', name: 'Page 1' })),
-            sourceStore.insertOne(new DummyNote({ id: 'entity1', name: 'entity1', pageId: 'page1' })),
-            sourceStore.insertOne(new DummyPage({ id: 'page2' , name: 'Page 2' })),
-            sourceStore.insertOne(new DummyNote({ id: 'entity2', name: 'entity2', pageId: 'page2' })),
+            sourceStore.insertOne(new DummyPage({ id: 'page1', parent_id:'', name: 'Page 1' })),
+            sourceStore.insertOne(new DummyNote({ id: 'entity1', testProp: 'entity1', parent_id: 'page1' })),
+            sourceStore.insertOne(new DummyPage({ id: 'page2' , parent_id:'', name: 'Page 2' })),
+            sourceStore.insertOne(new DummyNote({ id: 'entity2', testProp: 'entity2', parent_id: 'page2' })),
         ]
         let delta = Delta.fromChanges(changes)
         await repo.commit(delta, 'Initial commit')

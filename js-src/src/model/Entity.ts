@@ -28,8 +28,24 @@ export function resetEntityIdCounter() {
     _lastEntityId = 0
 }
 
+function copyThreeLevelsDown(obj: any, depth: number = 0): any {
+    if (depth > 3 || obj === null || typeof obj !== 'object') {
+        return obj;
+    }
+    if (Array.isArray(obj)) {
+        return obj.map(item => copyThreeLevelsDown(item, depth + 1));
+    }
+    const newObj: Record<string, any> = {};
+    for (const key in obj) {
+        newObj[key] = copyThreeLevelsDown(obj[key], depth + 1);
+    }
+    return newObj;
+}
 
-export function entityType<T extends typeof Entity<S>, S extends EntityData>(name: string): Function {
+export function entityType<T extends typeof Entity<S>, S extends EntityData>(name: string): any {
+    /**
+     * The decorator for regiestering entities
+     */
     // If 'name' is not a string - throw error
     if (typeof name !== 'string') {
         throw new Error('Entity type name must be a string');
@@ -54,7 +70,7 @@ export interface SerializedEntityData extends EntityData {
 
 // Serialization related functions
 export function dumpToDict<T extends Entity<EntityData>>(entity: T): SerializedEntityData {
-    const entityDict = entity.toObject() as SerializedEntityData
+    const entityDict = entity.data() as SerializedEntityData
     const typeName = entity.constructor.name
     // If not in the library, throw error
     if (entityLibrary[typeName] === undefined) {
@@ -82,6 +98,7 @@ export function loadFromDict<T extends SerializedEntityData>(entityDict: T): Ent
 // Entity definition
 export interface EntityData {
     id: string;  // Allows for composite ids
+    parent_id: string;  // Yes, we use snake_case for serialization
     _data?: never;  // Breaks the scructural compatability between Entity and EntityData which otherwise masks passing the wrong object type
 }
 
@@ -92,54 +109,36 @@ export abstract class Entity<T extends EntityData> {
     // like entity.content.image.width
     _data: T;
 
-    constructor(data: T) {
+    constructor(data: T) {  // Optional parent_id, defaults to ''
         // if data has _ data field throw error
         if (data['_data']) {
             throw new Error('Entity data cannot have _ field');
         }
-        this._data = data;
+        data.parent_id = data.parent_id || '';
+        this._data = data as T;
     }
 
     get id(): string {
         return this._data.id;
     }
-
-    abstract get parentId(): string;
-    get parent_id(): string {
-        log.warning('parent_id is deprecated. Use parentId instead.');
-        return this.parentId;
+    get parentId(): string {
+        return this._data.parent_id;
     }
 
-    withId(new_id: string): this {
-        const newData = { ...this._data, id: new_id };
-        return new (<any>this.constructor)(newData);
-    }
     copy(): this {
         // We're doing the deep copy in data(), so no need to do it here
         return new (<any>this.constructor)(this.data());
     }
-    copyWithNewId(): this {
-        return this.withId(getEntityId());
-    }
     data(): T {
-        // This is not great, since we can have objects 3 levels down
-        // like entity.content.image.width
-        // return {...this._data};
-
-        return structuredClone(this._data);
-    }
-    toObject(): T {
-        return this.data();
-    }
-    asdict(): T {
-        return this.data();
+        // Copy only three levels down, to avoid copy overhead on bad model design
+        return copyThreeLevelsDown(this._data);
     }
 
-    replace(new_data: Partial<T>) {
-        if (new_data.id !== undefined) {
-            throw new Error(
-                'The id of an entity is immutable. Use the withId method to create an object with the new id.');
-        }
+    replace(new_data: Omit<Partial<T>, 'id'>): void {
+        // if (new_data.id !== undefined) {
+        //     throw new Error(
+        //         'The id of an entity is immutable. Use the withId method to create an object with the new id.');
+        // }
         const newData = { ...this._data, ...new_data };
         this._data = newData;
     }
@@ -192,21 +191,7 @@ export abstract class Entity<T extends EntityData> {
 
         return new Change([this.id, reverseDelta, forwardDelta])
     }
-    withAppliedChange(change: Change): Entity<EntityData> {
-        switch (change.type()) {
-            case ChangeType.UPDATE:
-                if (this.id !== change.entityId) {
-                    throw new Error('Cannot apply delta from different entities');
-                }
-                const forwardDelta = change.forwardComponent;
-                let newData = { ...dumpToDict(this), ...forwardDelta };
-                return loadFromDict(newData);
-            default:
-                throw new Error('Cannot apply non-update type change to an entity');
 
-        }
-
-    }
 }
 
 // Helper function to check deep equality of entity properties up to 3 levels
@@ -250,4 +235,18 @@ export function entityKeysAreEqual(value1: any, value2: any, depth = 1): boolean
     }
 
     return true;
+}
+
+export function transformedEntity(entity: Entity<EntityData>, change: Change){
+    if (entity.id !== change.entityId) {
+        throw new Error('Cannot apply delta from different entities');
+    }
+
+    if (change.type() !== ChangeType.UPDATE) {
+        throw new Error('Cannot apply delta that is not an update');
+    }
+
+    const forwardDelta = change.forwardComponent;
+    let newData = { ...dumpToDict(entity), ...forwardDelta };
+    return loadFromDict(newData);
 }

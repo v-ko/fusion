@@ -1,5 +1,5 @@
 import { Change } from "../../model/Change";
-import { Entity, EntityData, SerializedEntityData, dumpToDict, loadFromDict } from "../../model/Entity";
+import { Entity, EntityData, SerializedEntityData, dumpToDict, loadFromDict, transformedEntity } from "../../model/Entity";
 import { Delta } from "../../model/Delta";
 
 // a searchFilter is a dict, where there can be an id, a parent_id, a type or any other property
@@ -43,7 +43,7 @@ export abstract class Store {
             if (entity === undefined) {
                 throw new Error(`Last state retreival error for ${change} (type update)`);
             }
-            entity = entity.withAppliedChange(change);
+            entity = transformedEntity(entity, change);
             this.updateOne(entity);
         } else if (change.isDelete()) {
             let entity = this.findOne({ id: change.entityId });
