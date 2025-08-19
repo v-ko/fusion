@@ -41,14 +41,14 @@ export abstract class Store {
         } else if (change.isUpdate()) {
             let entity = this.findOne({ id: change.entityId });
             if (entity === undefined) {
-                throw new Error(`Last state retreival error for ${change} (type update)`);
+                throw new Error(`Last state retreival error for ${change.data} (type update)`);
             }
             entity = transformedEntity(entity, change);
             this.updateOne(entity);
         } else if (change.isDelete()) {
             let entity = this.findOne({ id: change.entityId });
             if (entity === undefined) {
-                throw new Error(`Last state retreival error for ${change} (type delete)`);
+                throw new Error(`Last state retreival error for ${change.data} (type delete)`);
             }
             this.removeOne(entity);
         }

@@ -525,7 +525,7 @@ export class InMemoryStore extends Store {
                     : (candidate as any)._data[key];
 
                 if (entityValue !== value) {
-                    console.log('Filter failed for candidate:', key, entityValue, '!==', value);
+                    // console.log('Filter failed for candidate:', key, entityValue, '!==', value);
                     continue candidatesLoop;
                 }
             }
