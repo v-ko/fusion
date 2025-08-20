@@ -4,7 +4,6 @@ import { SerializedStoreData } from '../domain-store/BaseStore';
 import { Delta, DeltaData } from '../../model/Delta';
 import { RepoUpdateData } from "../repository/Repository"
 import { createId } from '../../util/base';
-import { buildHashTree } from '../version-control/HashTree';
 import { MediaItemData } from '../../model/MediaItem';
 import { generateUniquePathWithSuffix } from "../../util/secondary";
 import { getLogger } from '../../logging';
@@ -47,7 +46,6 @@ export interface StorageServiceActualInterface {
     addMedia: (projectId: string, blob: Blob, path: string, parentId: string) => Promise<MediaItemData>;
     getMedia: (projectId: string, mediaId: string, mediaHash: string) => Promise<Blob>;
     removeMedia: (projectId: string, mediaId: string, mediaHash: string) => Promise<void>;
-    moveMediaToTrash: (projectId: string, mediaId: string, mediaHash: string) => Promise<void>;
 
     test(): boolean;
     disconnect: () => void;
@@ -271,11 +269,6 @@ export class StorageService {
         return this.service.removeMedia(projectId, mediaId, mediaHash);
     }
 
-    async moveMediaToTrash(projectId: string, mediaId: string, mediaHash: string): Promise<void> {
-        return this.service.moveMediaToTrash(projectId, mediaId, mediaHash);
-    }
-
-
     async test() {
         return this.service.test();
     }
@@ -336,6 +329,10 @@ export class StorageServiceActual implements StorageServiceActualInterface {
     private _storageOperationQueue: StorageOperationRequest[] = [];
     private _processing = false;
     private mediaRequestParser?: MediaRequestParser;
+
+    // Runtime tracking for media created via addMedia during this session.
+    // Keys are `${mediaId}#${contentHash}`.
+    private _createdMediaThisSession: Set<string> = new Set();
 
     constructor(mediaRequestParser?: MediaRequestParser) {
         this.mediaRequestParser = mediaRequestParser;
@@ -416,7 +413,7 @@ export class StorageServiceActual implements StorageServiceActualInterface {
             const repoManager = this.repoManagers[mediaRequest.projectId];
             if (!repoManager) {
                 log.warning(`No repo manager found for project: ${mediaRequest.projectId}`);
-                return new Response('Project not found', {
+                return new Response(`Project not found ${mediaRequest.projectId}`, {
                     status: 404,
                     statusText: 'Not Found',
                     headers: { 'Content-Type': 'text/plain' }
@@ -564,15 +561,95 @@ export class StorageServiceActual implements StorageServiceActualInterface {
 
     async _executeCommitRequest(request: CommitRequest): Promise<void> {
         console.log('Type is commit')
-        let commitRequest = request as CommitRequest;
-        let projectStorageManager = this.repoManagers[commitRequest.projectId];
+        const commitRequest = request as CommitRequest;
+        const repoManager = this.repoManagers[commitRequest.projectId];
+
+        if (!repoManager) {
+            throw new Error("Repo not loaded");
+        }
+
+        const delta = new Delta(commitRequest.deltaData);
+
+        // Commit-time media automation per delta:
+        // - Delete: move blob to trash (and clear created marker)
+        // - Create: try to get blob; if missing -> restore from trash unless it was newly added via addMedia in this session; finally clear created marker
+        // - Update: if contentHash unchanged -> skip; else trash old hash (and clear its marker) and ensure presence/restore for new hash unless it was newly added; finally clear created marker
+        for (const change of delta.changes()) {
+            const [entityId, reverse, forward] = change.data as any;
+            const fwd: any = forward || {};
+            const rev: any = reverse || {};
+            const typeName: string | undefined = fwd.type_name || rev.type_name;
+            if (typeName !== 'MediaItem') continue;
+
+            const prevHash: string | undefined = rev.contentHash;
+            const nextHash: string | undefined = fwd.contentHash;
+
+            try {
+                if (change.isDelete()) {
+                    if (prevHash) {
+                        await repoManager.mediaStore.moveMediaToTrash(entityId, prevHash).catch(err => {
+                            log.error('[media-commit] move to trash failed on delete', entityId, err);
+                        });
+                        // Clear runtime-created marker for the deleted content
+                        this._createdMediaThisSession.delete(`${entityId}#${prevHash}`);
+                    } else {
+                        log.warning('[media-commit] delete without previous contentHash for media', entityId);
+                    }
+
+                } else if (change.isCreate()) {
+                    if (!nextHash) {
+                        log.warning('[media-commit] create without contentHash for media', entityId);
+                    } else {
+                        const key = `${entityId}#${nextHash}`;
+                        // Not present -> try restore unless it was created via addMedia this session
+                        if (!this._createdMediaThisSession.has(key)) {
+                            await repoManager.mediaStore.restoreMediaFromTrash(entityId, nextHash).catch(err => {
+                                // If not in trash, it's either newly uploaded elsewhere or will be handled by addMedia flows
+                                log.info('[media-commit] restore not performed for create (not in trash or failed)', entityId, err);
+                            });
+                        } else {
+                            // Clear marker for the new content after handling
+                            this._createdMediaThisSession.delete(key);
+                        }
+
+                    }
+
+                } else if (change.isUpdate()) {
+                    // If content hash did not change or not provided -> skip
+                    if (!nextHash || nextHash === prevHash) {
+                        continue;
+                    }
+
+                    // Old content becomes deleted
+                    if (prevHash) {
+                        await repoManager.mediaStore.moveMediaToTrash(entityId, prevHash).catch(err => {
+                            log.error('[media-commit] move to trash failed on update(old)', entityId, err);
+                        });
+                    }
+
+                    // New content treated as created -> ensure presence / restore if needed
+                    const newKey = `${entityId}#${nextHash}`;
+                    if (!this._createdMediaThisSession.has(newKey)) {
+                        await repoManager.mediaStore.restoreMediaFromTrash(entityId, nextHash).catch(err => {
+                            log.info('[media-commit] restore not performed on update(new) (not in trash or failed)', entityId, err);
+                        });
+                    } else {
+                        // Clear marker for the new content after handling
+                        this._createdMediaThisSession.delete(newKey);
+                    }
+
+                }
+            } catch (e) {
+                log.error('[media-commit] unexpected error while processing change', e);
+            }
+        }
 
         // Commit to in-mem
-        let commit = await projectStorageManager.onDeviceRepo.commit(new Delta(commitRequest.deltaData), commitRequest.message);
+        const commit = await repoManager.onDeviceRepo.commit(delta, commitRequest.message);
         console.log('Created commit', commit)
 
         // Notify subscribers
-        let commitGraph = await this.repoManagers[commitRequest.projectId].onDeviceRepo.getCommitGraph()
+        const commitGraph = await this.repoManagers[commitRequest.projectId].onDeviceRepo.getCommitGraph()
         this.broadcastLocalUpdate({
             projectId: commitRequest.projectId,
             storageServiceId: this.id,
@@ -631,7 +708,13 @@ export class StorageServiceActual implements StorageServiceActualInterface {
         });
 
         log.info(`Adding media to project ${projectId} with unique path: ${uniquePath}`);
-        return repoManager.mediaStore.addMedia(blob, uniquePath, parentId); // Use the unique path
+        const mediaItem = await repoManager.mediaStore.addMedia(blob, uniquePath, parentId); // Use the unique path
+
+        // Mark created in this session to skip restore logic during commit processing
+        const key = `${mediaItem.id}#${mediaItem.contentHash}`;
+        this._createdMediaThisSession.add(key);
+
+        return mediaItem;
     }
 
     async getMedia(projectId: string, mediaId: string, mediaHash: string): Promise<Blob> {
@@ -648,15 +731,10 @@ export class StorageServiceActual implements StorageServiceActualInterface {
             throw new Error("Repo not loaded");
         }
 
-        return repoManager.mediaStore.removeMedia(mediaId, mediaHash);
-    }
+        await repoManager.mediaStore.removeMedia(mediaId, mediaHash);
 
-    async moveMediaToTrash(projectId: string, mediaId: string, mediaHash: string): Promise<void> {
-        let repoManager = this.repoManagers[projectId];
-        if (!repoManager) {
-            throw new Error("Repo not loaded");
-        }
-        return repoManager.mediaStore.moveMediaToTrash(mediaId, mediaHash);
+        // Unset runtime-created mark when removed explicitly
+        this._createdMediaThisSession.delete(`${mediaId}#${mediaHash}`);
     }
 
     disconnect() {

@@ -1,4 +1,4 @@
-import { MediaItem, MediaItemData } from "../../model/MediaItem";
+import { MediaItemData } from "../../model/MediaItem";
 
 // Global cleanup parameters
 export const MAX_VERSIONS_PER_MEDIA_ITEM = 5; // Maximum versions to keep in trash per media item
@@ -16,5 +16,6 @@ export interface MediaStoreAdapter {
   getMedia: (mediaId: string, mediaHash: string) => Promise<Blob>;
   removeMedia: (mediaId: string, contentHash: string) => Promise<void>;
   moveMediaToTrash: (mediaId: string, contentHash: string) => Promise<void>;
+  restoreMediaFromTrash: (mediaId: string, contentHash: string) => Promise<void>;
   cleanTrash: () => Promise<void>;
 }

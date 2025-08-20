@@ -9,7 +9,6 @@ export interface MediaItemData extends EntityData {
     height: number;  // For audio those are 0. That's the only rendundancy. Better to have that than a complex model
     mimeType: string;  // MIME type of the image (e.g. 'image/jpeg', 'image/png')
     size: number;  // Size of the image in bytes
-    timeDeleted?: number;  // Timestamp when item was deleted (undefined = not deleted). We keep a trash bin for undo/redo functionality
 }
 
 @entityType('MediaItem')
@@ -45,21 +44,5 @@ export class MediaItem extends Entity<MediaItemData> {
 
     get size(): number {
         return this._data.size;
-    }
-
-    get timeDeleted(): number {
-        if (!this.isDeleted) {
-            throw new Error("MediaItem is not deleted");
-        }
-        return this._data.timeDeleted!;
-    }
-
-    get isDeleted(): boolean {
-        return this._data.timeDeleted !== undefined;
-    }
-
-    // Mark this MediaItem as deleted
-    markDeleted(): void {
-        this._data.timeDeleted = Date.now();
     }
 }

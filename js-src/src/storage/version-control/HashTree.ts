@@ -158,7 +158,7 @@ export class HashTreeNode {
         delete this.children[child.entityId];
         let index = this.childrenSorted.indexOf(child);
         if (index === -1) {
-            throw Error("Child not found");
+            throw Error(`Cannot remove child (entityId: ${child.entityId}) from node (entityId: ${this.entityId}): child not found`);
         }
         this.childrenSorted.splice(index, 1);
         this.setChildrenSortOutdated(); // not needed if sort is on every insert

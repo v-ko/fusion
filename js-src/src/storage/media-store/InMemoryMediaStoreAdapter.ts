@@ -36,7 +36,6 @@ export class InMemoryMediaStoreAdapter implements MediaStoreAdapter {
             height,
             mimeType: blob.type,
             size: blob.size,
-            timeDeleted: undefined,
             parent_id: parentId
         });
 
@@ -49,9 +48,14 @@ export class InMemoryMediaStoreAdapter implements MediaStoreAdapter {
 
     async getMedia(mediaId: string, mediaHash: string): Promise<Blob> {
         const storageKey = this._getStorageKey(mediaId, mediaHash);
-        const blob = this._media.get(storageKey);
+        let blob = this._media.get(storageKey);
         if (!blob) {
-            log.error(`Media not found in in-memory store: ${storageKey}`);
+            // Allow fetching from trash to support "trashed-but-servable" behavior
+            const trashed = this._trash.get(storageKey);
+            blob = trashed?.blob;
+        }
+        if (!blob) {
+            log.error(`Media not found in in-memory store (active or trash): ${storageKey}`);
             throw new Error(`Media not found: ${storageKey}`);
         }
         return blob;
@@ -80,6 +84,21 @@ export class InMemoryMediaStoreAdapter implements MediaStoreAdapter {
         this._media.delete(storageKey);
         this._trash.set(storageKey, { blob: blob, timeDeleted: Date.now() });
         log.info(`Moved media to trash: ${storageKey}`);
+    }
+
+    async restoreMediaFromTrash(mediaId: string, contentHash: string): Promise<void> {
+        const storageKey = this._getStorageKey(mediaId, contentHash);
+        const trashed = this._trash.get(storageKey);
+
+        if (!trashed) {
+            log.warning(`Attempted to restore non-existent trashed media: ${storageKey}`);
+            return;
+        }
+
+        // Move blob back to active storage
+        this._trash.delete(storageKey);
+        this._media.set(storageKey, trashed.blob);
+        log.info(`Restored media from trash: ${storageKey}`);
     }
 
     async cleanTrash(): Promise<void> {

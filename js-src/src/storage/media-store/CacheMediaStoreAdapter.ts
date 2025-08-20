@@ -68,7 +68,6 @@ export class CacheMediaStoreAdapter implements MediaStoreAdapter {
       height,
       mimeType: blob.type,
       size: blob.size,
-      timeDeleted: undefined,
       parent_id: parentId
     });
 
@@ -136,6 +135,31 @@ export class CacheMediaStoreAdapter implements MediaStoreAdapter {
 
     await this.cache.put(request, newResponse);
     log.info(`Marked media for trashing in cache: ${cacheKey}`);
+  }
+
+  async restoreMediaFromTrash(mediaId: string, contentHash: string): Promise<void> {
+    const cacheKey = this._getCacheKey(mediaId, contentHash);
+    const request = new Request(cacheKey);
+    const response = await this.cache.match(request);
+
+    if (!response) {
+      log.warning(`Media not found for restore: ${cacheKey}`);
+      return;
+    }
+
+    const blob = await response.blob();
+    // Recreate response without trash-related headers
+    const headers = new Headers(response.headers);
+    headers.delete('X-Delete-After');
+
+    const newResponse = new Response(blob, {
+      status: response.status,
+      statusText: response.statusText,
+      headers
+    });
+
+    await this.cache.put(request, newResponse);
+    log.info(`Restored media in cache: ${cacheKey}`);
   }
 
   async cleanTrash(): Promise<void> {
