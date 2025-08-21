@@ -67,7 +67,7 @@ export class ProjectStorageManager {
      * The synchronization process consists of communicating sync graph changes -
      * e.g. through yjs/webrtc or other means we convey changes in a CRDT-like
      * manner, where the order of update arrival does not matter.
-     * The other operations on the graph (squishing, merging) are applied by
+     * The other operations on the graph (squashing, merging) are applied by
      * each client to their own branch, which allows for the above properties of
      * sync graph updates (arrival order irrelevance, ..?). Merge-conflicts
      * (where two clients commit at the same time on the same data) are resolved

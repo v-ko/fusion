@@ -94,7 +94,7 @@ export class StorageService {
      * This is a wrapper that allows the storage service to be run in either
      * a service worker or the main thread.
      *
-     * Commit, squish, merge and other storage operations are wrapped as requests
+     * Commit, squash, merge and other storage operations are wrapped as requests
      * so that they can be executed in request order as to avoid consistency problems
      *
      * Normally each tab/window will only load a single project. Those can be

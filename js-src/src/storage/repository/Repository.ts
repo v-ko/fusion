@@ -3,7 +3,7 @@ import { Commit, CommitData } from "../version-control/Commit";
 import { CommitGraph, CommitGraphData } from "../version-control/CommitGraph";
 import { StorageAdapter, InternalRepoUpdate } from "./StorageAdapter";
 import { inferRepoChangesFromGraphs, sanityCheckAndHydrateInternalRepoUpdate } from "../management/sync-utils";
-import { Delta, DeltaData, squishDeltas } from "../../model/Delta";
+import { Delta, DeltaData, squashDeltas } from "../../model/Delta";
 import { createId } from "../../util/base";
 import { HangingSubtreesError, HashTree, buildHashTree, updateHashTree } from "../version-control/HashTree";
 import { InMemoryStore, IndexConfig } from "../domain-store/InMemoryStore";
@@ -377,8 +377,8 @@ export class Repository {
         let commitsToRevert = branchCommits.slice(targetIndex + 1)
         let commitsToRevertFull = await this.getCommits(commitsToRevert.map(c => c.id));
         const reversedDeltas = commitsToRevertFull.map(c => new Delta(c.deltaData as DeltaData).reversed().data);
-        const squishedDelta = squishDeltas(reversedDeltas);
-        this.headStore.applyDelta(squishedDelta);
+        const squashedDelta = squashDeltas(reversedDeltas);
+        this.headStore.applyDelta(squashedDelta);
 
 
         // Remove from commit graph and local commits
@@ -388,7 +388,7 @@ export class Repository {
         }
 
         // Update hash tree
-        await updateHashTree(this.hashTree, this.headStore, squishedDelta)
+        await updateHashTree(this.hashTree, this.headStore, squashedDelta)
         commitGraph.setBranch(this._currentBranch, targetCommit.id)
 
         // Assert that the hash is correct
@@ -454,7 +454,7 @@ export class Repository {
         if (commitsBehind.length === 0) {
             log.info('No new commits to apply to headStore.')
         } else {
-            // Squish deltas and apply the update to the head store
+            // Squash deltas and apply the update to the head store
             let deltas: DeltaData[] = []
 
             for (let commitId of commitsBehind) {
@@ -467,11 +467,11 @@ export class Repository {
             }
 
             // Apply to head store
-            let squishedDelta = squishDeltas(deltas)
-            this.headStore.applyDelta(squishedDelta)
+            let squashedDelta = squashDeltas(deltas)
+            this.headStore.applyDelta(squashedDelta)
 
             // Update the hash tree
-            await updateHashTree(this.hashTree, this.headStore, squishedDelta)
+            await updateHashTree(this.hashTree, this.headStore, squashedDelta)
 
             // Assert hash is correct
             let snapshotHash = this.hashTree.rootHash()

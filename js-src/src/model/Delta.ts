@@ -227,14 +227,14 @@ export class Delta {
     }
 }
 
-export function squishDeltas(deltas: DeltaData[]) {
-    const squishedDelta = new Delta({});
+export function squashDeltas(deltas: DeltaData[]) {
+    const squashedDelta = new Delta({});
 
     for (let delta of deltas) {
-        squishedDelta.mergeWithPriority(new Delta(delta));
+        squashedDelta.mergeWithPriority(new Delta(delta));
     }
 
-    return squishedDelta;
+    return squashedDelta;
 }
 
 function changeTypeFromData(

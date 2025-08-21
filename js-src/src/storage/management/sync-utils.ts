@@ -8,14 +8,14 @@ import { getLogger } from "../../logging";
 let log = getLogger('SyncUtils')
 
 /**
- * The sync mechanism involves auto-merging and squishing in the commit graph.
+ * The sync mechanism involves auto-merging and squashing in the commit graph.
  * Each node(=client/device) has its own branch in the repo. Whenever it adds
  * changes (commits) - that's only on its own branch. When a remote node
  * adds a commit and the local repo pulls - that's a non-conflicting change.
  * The local branch auto-merges (adds the commit to the local branch). When all
- * nodes advance to that commit - the history gets squished. Commit ids are not
+ * nodes advance to that commit - the history gets squashed. Commit ids are not
  * content based, so that doesn't affect the latest commits.
- * Actually all consecutive commits that don't include a head get squished (in
+ * Actually all consecutive commits that don't include a head get squashed (in
  * order to reduce memory overhead).
  *
  * Special cases and conflict handling
@@ -51,7 +51,7 @@ export async function autoMergeForSync(repo: Repository, localBranchName: string
     let commitsByBranch = new Map<string, CommitMetadata[]>()
     branches.forEach(b => commitsByBranch.set(b.name, commitGraph.branchCommits(b.name)))
 
-    // * There should be a squish beforehand
+    // * There should be a squash beforehand
     // Start from the root and go forward on all senior branches in parallel.
     // While there are relevant (senior) branches:
     let currentPos = 0
@@ -92,7 +92,7 @@ export async function autoMergeForSync(repo: Repository, localBranchName: string
         //   state alteration - call the merge with revert=commitsAhead
         //   which would first revert the commits, then add the remote one, then
         //   re-add them with removed conflicting changes at the lvl1-keys (and new ids)
-        //   * There should be max 2 local commits ahead btw - one squished and one head.
+        //   * There should be max 2 local commits ahead btw - one squashed and one head.
 
         let commitsAheadCount = localBranchCommits.length - currentPos
         let commitsAheadMetadata = localBranchCommits.slice(currentPos, commitsAheadCount)
