@@ -25,20 +25,39 @@ export class InMemoryStorageAdapter implements StorageAdapter {
     }
 
     async applyUpdate(update: InternalRepoUpdate): Promise<void> {
-        // Add new commits
-        for (const commit of update.addedCommits) {
-            this._commitById.set(commit.id, commit);
-            this._commitGraph.addCommit(commit);
-        }
+        const {
+            addedCommits,
+            removedCommits,
+            updatedCommits,
+            addedBranches,
+            updatedBranches,
+            removedBranches
+        } = update;
 
         // Remove old commits
-        for (const commit of update.removedCommits) {
+        for (const commit of removedCommits) {
             this._commitById.delete(commit.id);
             this._commitGraph.removeCommit(commit.id);
         }
 
+        // Update existing commits (full replace: metadata + delta)
+        for (const commit of updatedCommits) {
+            // Replace full commit in map
+            this._commitById.delete(commit.id);
+            this._commitById.set(commit.id, commit);
+            // Refresh metadata in graph (remove then add)
+            this._commitGraph.removeCommit(commit.id);
+            this._commitGraph.addCommit(commit.metadata());
+        }
+
+        // Add new commits
+        for (const commit of addedCommits) {
+            this._commitById.set(commit.id, commit);
+            this._commitGraph.addCommit(commit.metadata());
+        }
+
         // Add new branches
-        for (const branch of update.addedBranches) {
+        for (const branch of addedBranches) {
             this._commitGraph.createBranch(branch.name);
             if (branch.headCommitId) {
                 this._commitGraph.setBranch(branch.name, branch.headCommitId);
@@ -46,12 +65,12 @@ export class InMemoryStorageAdapter implements StorageAdapter {
         }
 
         // Update branches
-        for (const branch of update.updatedBranches) {
+        for (const branch of updatedBranches) {
             this._commitGraph.setBranch(branch.name, branch.headCommitId);
         }
 
         // Remove branches
-        for (const branch of update.removedBranches) {
+        for (const branch of removedBranches) {
             this._commitGraph.removeBranch(branch.name);
         }
     }

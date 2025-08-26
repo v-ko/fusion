@@ -1,8 +1,4 @@
 import { Delta, DeltaData } from "../../model/Delta";
-import { getLogger } from "../../logging";
-
-const log = getLogger("Commit");
-
 
 export interface CommitMetadataData {
     id: string;
@@ -10,9 +6,10 @@ export interface CommitMetadataData {
     message: string;
     timestamp: number;
     snapshotHash: string;
+    deltaData?: never;  // Annotation trick to not allow passing Commit objects where CommitMetadata is expected
 }
 
-export interface CommitData extends CommitMetadataData {
+export interface CommitData extends Omit<CommitMetadataData, 'deltaData'> {
     deltaData: DeltaData;
 }
 
@@ -42,17 +39,30 @@ export class CommitMetadata {
     }
 }
 
-export class Commit extends CommitMetadata {
+export class Commit {
+    id: string;
+    parentId: string;
+    snapshotHash: string;
+    timestamp: number;
+    message: string;
     deltaData: DeltaData;
 
     constructor(data: CommitData) {
-        super(data);
+        this.id = data.id;
+        this.parentId = data.parentId;
+        this.snapshotHash = data.snapshotHash;
+        this.timestamp = data.timestamp;
+        this.message = data.message;
         this.deltaData = data.deltaData;
     }
 
     data(): CommitData {
         return {
-            ...super.data(),
+            id: this.id,
+            parentId: this.parentId,
+            snapshotHash: this.snapshotHash,
+            timestamp: this.timestamp,
+            message: this.message,
             deltaData: this.deltaData,
         };
     }

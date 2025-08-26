@@ -1,6 +1,5 @@
 import * as Comlink from 'comlink';
 import { ProjectStorageManager, ProjectStorageConfig } from './ProjectStorageManager';
-import { SerializedStoreData } from '../domain-store/BaseStore';
 import { Delta, DeltaData } from '../../model/Delta';
 import { RepoUpdateData } from "../repository/Repository"
 import { createId } from '../../util/base';
@@ -8,8 +7,14 @@ import { MediaItemData } from '../../model/MediaItem';
 import { generateUniquePathWithSuffix } from "../../util/secondary";
 import { getLogger } from '../../logging';
 import { addChannel, Channel, getChannel, Subscription } from '../../registries/Channel';
+import { CommitData } from '../version-control/Commit';
+import { CommitGraphData } from '../version-control/CommitGraph';
+import { squashBranchHistory } from './sync-utils';
 
 let log = getLogger('StorageService')
+
+// Simple policy: squash commits older than this TTL into the first commit (J=0)
+const SQUASH_TTL_MS = 15 * 60 * 1000 // TODO: Should be passed as a parameter
 
 export interface MediaRequest {
     projectId: string;
@@ -33,7 +38,8 @@ export interface StorageServiceActualInterface {
     createProject: (projectId: string, projectStorageConfig: ProjectStorageConfig) => Promise<void>;
     unloadProject: (projectId: string) => Promise<void>;
     deleteProject: (projectId: string, projectStorageConfig: ProjectStorageConfig) => Promise<void>;
-    headState: (projectId: string) => Promise<SerializedStoreData>;
+    getCommitGraph: (projectId: string) => Promise<CommitGraphData>;
+    getCommits: (projectId: string, commitIds: string[]) => Promise<CommitData[]>;
 
     // Repo changes (mostly commits to the domain store as of now) can come from
     // different sources (the UI/FDS, remote storage sync adapters), so they operate
@@ -252,8 +258,12 @@ export class StorageService {
             log.error('Error committing', error)
         })
     }
-    headState(projectId: string): Promise<SerializedStoreData> {
-        return this.service.headState(projectId);
+    getCommitGraph(projectId: string): Promise<CommitGraphData> {
+        return this.service.getCommitGraph(projectId);
+    }
+
+    getCommits(projectId: string, commitIds: string[]): Promise<CommitData[]> {
+        return this.service.getCommits(projectId, commitIds);
     }
 
     // Media operations
@@ -648,14 +658,33 @@ export class StorageServiceActual implements StorageServiceActualInterface {
         const commit = await repoManager.onDeviceRepo.commit(delta, commitRequest.message);
         console.log('Created commit', commit)
 
-        // Notify subscribers
+        // Try squash before notifying subscribers, so the broadcast reflects latest graph
+        const squashedUpserts = await squashBranchHistory(
+            repoManager.onDeviceRepo,
+            repoManager.currentBranchName,
+            SQUASH_TTL_MS
+        )//.catch(err => { log.error('[squash] Failed to squash history', err); return []; });
+
+        // Build upserted set conditionally: only augment when squash returned updates
+        let upsertedCommits: CommitData[];
+        if (squashedUpserts.length > 0) {
+            const map = new Map<string, CommitData>();
+            for (const c of squashedUpserts) map.set(c.id, c);
+            const newCommitData = commit.data();
+            if (!map.has(newCommitData.id)) map.set(newCommitData.id, newCommitData);
+            upsertedCommits = Array.from(map.values());
+        } else {
+            upsertedCommits = [commit.data()];
+        }
+
+        // Notify subscribers (graph reflects any squash because we fetch after applying)
         const commitGraph = await this.repoManagers[commitRequest.projectId].onDeviceRepo.getCommitGraph()
         this.broadcastLocalUpdate({
             projectId: commitRequest.projectId,
             storageServiceId: this.id,
             update: {
                 commitGraph: commitGraph.data(),
-                newCommits: [commit.data()]
+                upsertedCommits
             }
         });
     }
@@ -687,13 +716,24 @@ export class StorageServiceActual implements StorageServiceActualInterface {
         }
     }
 
-    async headState(projectId: string): Promise<SerializedStoreData> {
+    async getCommitGraph(projectId: string): Promise<CommitGraphData> {
         let repoManager = this.repoManagers[projectId];
         if (!repoManager) {
             throw new Error("Repo not loaded");
         }
-        return repoManager.onDeviceRepo.headStore.data();
+        const graph = await repoManager.onDeviceRepo.getCommitGraph();
+        return graph.data();
     }
+
+    async getCommits(projectId: string, commitIds: string[]): Promise<CommitData[]> {
+        let repoManager = this.repoManagers[projectId];
+        if (!repoManager) {
+            throw new Error("Repo not loaded");
+        }
+        const commits = await repoManager.onDeviceRepo.getCommits(commitIds);
+        return commits.map(commit => commit.data());
+    }
+
     // Media operations
     async addMedia(projectId: string, blob: Blob, path: string, parentId: string): Promise<MediaItemData> {
         let repoManager = this.repoManagers[projectId];
@@ -740,4 +780,5 @@ export class StorageServiceActual implements StorageServiceActualInterface {
     disconnect() {
         this._storageUpdateSubscription?.unsubscribe();
     }
+
 }

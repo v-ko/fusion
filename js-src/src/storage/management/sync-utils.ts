@@ -1,8 +1,9 @@
-import { Commit, CommitMetadata } from "../version-control/Commit";
-import { Repository, RepoUpdateData } from "../repository/Repository";
+import { Commit, CommitMetadata, CommitData } from "../version-control/Commit";
+import { Repository, RepoUpdateData, verifyRepositoryIntegrity } from "../repository/Repository";
 import { ChangeType } from "../../model/Change";
 import { CommitGraph } from "../version-control/CommitGraph";
 import { InternalRepoUpdate, InternalRepoUpdateNoDeltas } from "../repository/StorageAdapter";
+import { Delta, DeltaData, squashDeltas } from "../../model/Delta";
 import { getLogger } from "../../logging";
 
 let log = getLogger('SyncUtils')
@@ -107,10 +108,10 @@ export async function autoMergeForSync(repo: Repository, localBranchName: string
 
         // Add the commit from the senior branch
         commitGraph = await repo.getCommitGraph();
-        commitGraph.addCommit(dominantCommit)
+        commitGraph.addCommit(dominantCommit.metadata())
         await repo.applyRepoUpdate({
             commitGraph: commitGraph.data(),
-            newCommits: [dominantCommit.data()]
+            upsertedCommits: [dominantCommit.data()]
         })
 
 
@@ -180,7 +181,7 @@ export async function autoMergeForSync(repo: Repository, localBranchName: string
             commitGraph.setBranch(localBranchName, refreshedCommits.at(-1)!.id)
             let localReaddUpdate: RepoUpdateData = {
                 commitGraph: commitGraph.data(),
-                newCommits: refreshedCommits.map(c => c.data())
+                upsertedCommits: refreshedCommits.map(c => c.data())
             }
             await repo.applyRepoUpdate(localReaddUpdate)
         }
@@ -202,42 +203,50 @@ export async function autoMergeForSync(repo: Repository, localBranchName: string
 
 
 export function inferRepoChangesFromGraphs(localGraph: CommitGraph, remoteGraph: CommitGraph): InternalRepoUpdateNoDeltas {
-    let localSet = new Set(localGraph.commits().map((c) => c.id))
-    let remoteSet = new Set(remoteGraph.commits().map((c) => c.id))
+    let localCommits = localGraph.commits();
+    let remoteCommits = remoteGraph.commits();
+
+    let localSet = new Set(localCommits.map((c) => c.id));
+    let remoteSet = new Set(remoteCommits.map((c) => c.id));
 
     // Infer the removed commits
-    let removedCommits = localGraph.commits().filter((c) => !remoteSet.has(c.id))
-
-    // Confirm the compatability of reductive changes
-    // TODO
+    let removedCommits = localCommits.filter((c) => !remoteSet.has(c.id));
 
     // Infer missing commits from the commit graph
-    let addedCommits = remoteGraph.commits().filter((c) => !localSet.has(c.id))
+    let addedCommits = remoteCommits.filter((c) => !localSet.has(c.id));
+
+    // Detect updated commits (metadata differences for same id)
+    // Only track parentId or snapshotHash changes (timestamp/message ignored)
+    let updatedCommits = remoteCommits.filter((remoteC) => {
+        if (!localSet.has(remoteC.id)) return false;
+        let localC = localGraph.commit(remoteC.id);
+        if (!localC) return false;  // Should never happen
+        return (localC.parentId !== remoteC.parentId) || (localC.snapshotHash !== remoteC.snapshotHash);
+    });
 
     // Infer the branch changes
-    let localBranches = localGraph.branches()
-    let remoteBranches = remoteGraph.branches()
-    let localMap = new Map(localBranches.map((b) => [b.name, b]))
-    let remoteMap = new Map(remoteBranches.map((b) => [b.name, b]))
+    let localBranches = localGraph.branches();
+    let remoteBranches = remoteGraph.branches();
+    let localMap = new Map(localBranches.map((b) => [b.name, b]));
+    let remoteMap = new Map(remoteBranches.map((b) => [b.name, b]));
 
     // Infer the removed branches
-    let removedBranches = localBranches.filter((b) => !remoteMap.has(b.name))
+    let removedBranches = localBranches.filter((b) => !remoteMap.has(b.name));
 
     // Infer the added branches
-    let addedBranches = remoteBranches.filter((b) => !localMap.has(b.name))
+    let addedBranches = remoteBranches.filter((b) => !localMap.has(b.name));
 
     // Infer the updated branches
     let updatedBranches = remoteBranches.filter((b) => {
-        let localHead = localGraph.headCommit(b.name)
-        let remoteHead = remoteGraph.headCommit(b.name)
-        return localHead?.id !== remoteHead?.id
-    })
-
-    // Sanity checks?
+        let localHead = localGraph.headCommit(b.name);
+        let remoteHead = remoteGraph.headCommit(b.name);
+        return localHead?.id !== remoteHead?.id;
+    });
 
     return {
         addedCommits: addedCommits,
         removedCommits: removedCommits,
+        updatedCommits: updatedCommits,
         addedBranches: addedBranches,
         updatedBranches: updatedBranches,
         removedBranches: removedBranches
@@ -245,27 +254,233 @@ export function inferRepoChangesFromGraphs(localGraph: CommitGraph, remoteGraph:
 }
 
 
-export function sanityCheckAndHydrateInternalRepoUpdate(repoUpdate: InternalRepoUpdateNoDeltas, newCommitsWithDeltas: Commit[]): InternalRepoUpdate{
-    let {
+export function sanityCheckAndHydrateInternalRepoUpdate(
+    repoUpdate: InternalRepoUpdateNoDeltas,
+    upsertedCommitsWithDeltas: Commit[]
+): InternalRepoUpdate {
+    const {
         addedCommits,
         removedCommits,
+        updatedCommits,
         addedBranches,
         updatedBranches,
         removedBranches
-    } = repoUpdate
+    } = repoUpdate;
 
-    // Check that all added are in newCommits by id sets
-    let newCommitsSet = new Set(newCommitsWithDeltas.map(c => c.id));
-    for (let commit of addedCommits) {
-        if (!newCommitsSet.has(commit.id)) {
-            throw new Error(`Added commit ${commit.id} not found in new commits`);
+    // Build id lookups from the slim diff
+    const addedIds = new Set(addedCommits.map(c => c.id));
+    const updatedIds = new Set(updatedCommits.map(c => c.id));
+
+    const hydratedAdded: Commit[] = [];
+    const hydratedUpdated: Commit[] = [];
+    const unmatched: Commit[] = [];
+
+    // Single pass over upserted payload: separate into added vs updated.
+    // If an upserted commit isn't referenced in the slim diff, keep it aside and
+    // treat it as "updated" defensively (e.g. K+1 reparent during squash).
+    for (const commit of upsertedCommitsWithDeltas) {
+        if (addedIds.has(commit.id)) {
+            hydratedAdded.push(commit);
+            addedIds.delete(commit.id);
+        } else if (updatedIds.has(commit.id)) {
+            hydratedUpdated.push(commit);
+            updatedIds.delete(commit.id);
+        } else {
+            unmatched.push(commit);
         }
     }
-    return {
-        addedCommits: newCommitsWithDeltas,
-        removedCommits: removedCommits,
-        addedBranches: addedBranches,
-        updatedBranches: updatedBranches,
-        removedBranches: removedBranches
+    // Defensive fallback: any upserted commit not present in the slim diff is applied as updated.
+    if (unmatched.length > 0) {
+        throw new Error(`Unmatched upserted commits: ${unmatched.map(c => c.id).join(', ')}`);
     }
+
+    // Validate all expected ids were hydrated
+    if (addedIds.size > 0) {
+        throw new Error(`Missing upserted commits for added ids: ${Array.from(addedIds).join(', ')}`);
+    }
+    if (updatedIds.size > 0) {
+        throw new Error(`Missing upserted commits for updated ids: ${Array.from(updatedIds).join(', ')}`);
+    }
+
+    return {
+        addedCommits: hydratedAdded,
+        removedCommits,
+        updatedCommits: hydratedUpdated,
+        addedBranches,
+        updatedBranches,
+        removedBranches
+    };
+}
+
+/**
+ * Squash branch history using the K-centric algorithm.
+ *
+ * Squash algorithm (K-centric):
+ * - Find largest K in the prefix with timestamp <= cutoff
+ * - Aggregate deltas for [J..K] into ΔJK
+ * - Update K: parentId := parent(J), deltaData := ΔJK, snapshotHash unchanged (== snapshot at K)
+ * - Remove commits J..K-1
+ * - Apply atomic repo update
+ *
+ * @param repo - The repository to squash
+ * @param branchName - The branch name to squash
+ * @param squashTtlMs - Time in milliseconds - commits older than this will be squashed
+ * @returns Array of upserted commits (the updated K commit if squashing occurred)
+ */
+export async function squashBranchHistory(
+    repo: Repository,
+    branchName: string,
+    squashTtlMs: number = 24 * 60 * 60 * 1000 // 24h default
+): Promise<CommitData[]> {
+    const graph = await repo.getCommitGraph();
+    const commits = graph.branchCommits(branchName); // oldest -> newest
+
+    if (commits.length < 2) {
+        log.info('[squash] Less than two commits, skipping squash');
+        return [];
+    }
+
+    const cutoff = Date.now() - squashTtlMs;
+
+    // Find largest K such that commits[K].timestamp <= cutoff and the window starts at 0 (prefix)
+    log.info('[squash] Finding K for cutoff:', cutoff, 'in commits:', commits.length);
+    let K = -1;
+    for (let i = 0; i < commits.length; i++) {
+        if (commits[i].timestamp <= cutoff) {
+            K = i;
+        } else {
+            break; // stop at first newer-than-cutoff
+        }
+    }
+
+    // Need at least two old commits in the prefix (i.e., K >= 1)
+    if (K <= 0) {
+        log.info('[squash] No old commits to squash, skipping');
+        return [];
+    }
+
+    const J = 0;
+    const Jmeta = commits[J];
+    const Kmeta = commits[K];
+
+    // Aggregate deltas for commits [J..K]
+    const idsToAggregate = commits.slice(J, K + 1).map(c => c.id);
+    const fullForAggregate = await repo.getCommits(idsToAggregate);
+    const aggregatedDelta = squashDeltas(fullForAggregate.map(c => c.deltaData));
+
+    // Use the full K from the aggregate fetch to avoid another round-trip
+    const Kfull = fullForAggregate[fullForAggregate.length - 1];
+
+    // Build updated K: parentId changes to parent(J), snapshotHash stays (K end-state), delta becomes Δ(J..K)
+    const updatedK = new Commit({
+        id: Kfull.id,
+        parentId: Jmeta.parentId ?? null,
+        snapshotHash: Kfull.snapshotHash,     // end state unchanged
+        deltaData: aggregatedDelta.data,      // composed J..K
+        message: Kfull.message,               // or "squash J..K"
+        timestamp: Kfull.timestamp            // keep K's timestamp
+    });
+
+    // Remove commits J..K-1 from the graph
+    for (const meta of commits.slice(J, K)) {
+        graph.removeCommit(meta.id);
+    }
+
+    // Update metadata for K in the graph (parentId changed)
+    const kMetaOld = graph.commit(Kmeta.id);
+    if (!kMetaOld) {
+        throw new Error('[squash] K commit not found in graph');
+    }
+    const kMetaNew = new CommitMetadata({
+        ...kMetaOld.data(),
+        parentId: Jmeta.parentId,
+        // snapshotHash/timestamp/message remain aligned with updatedK
+        snapshotHash: updatedK.snapshotHash,
+        timestamp: updatedK.timestamp,
+        message: updatedK.message
+    });
+    graph.removeCommit(Kmeta.id);
+    graph.addCommit(kMetaNew);
+
+    // K+1 (if exists) remains parented to K; branch head naturally stays the same.
+    // If everything is within [0..K] (i.e., K == last), head is already K — no change needed.
+
+    const upsertedCommits = [updatedK.data()];
+
+    // Apply the repo update through the repository API (infers removed/updated internally)
+    const updateInfo: RepoUpdateData = {
+        commitGraph: graph.data(),
+        upsertedCommits
+    };
+    await repo.applyRepoUpdate(updateInfo);
+
+    // Verify integrity post-squash
+    const ok = await verifyRepositoryIntegrity(repo, branchName);
+    log.info('Verified repository integrity after squash (K-centric):', ok);
+    if (!ok) {
+        throw new Error('[squash] Repository integrity verification failed after K-centric squash');
+    }
+
+    return upsertedCommits;
+}
+
+/**
+ * Pure function to compute the delta needed to synchronize a local commit graph with a remote one.
+ * This abstracts the core logic from Repository._applyInternalUpdateToCache for use in FDS.
+ *
+ * @param localGraph Current local commit graph
+ * @param remoteGraph Target remote commit graph
+ * @param upsertedCommits Commits from the remote that were added/updated
+ * @param currentBranch Current branch name
+ * @returns Delta to apply to get from local to remote state, or null if no changes needed
+ */
+export function computeRepoSyncDelta(
+    localGraph: CommitGraph,
+    remoteGraph: CommitGraph,
+    upsertedCommits: Commit[],
+    currentBranch: string
+): Delta | null {
+    let commitsBehind: string[] = [] // ids
+    let remoteHeadCommit = remoteGraph.headCommit(currentBranch)
+    let localHeadCommit = localGraph.headCommit(currentBranch)
+
+    if (remoteHeadCommit) {
+        let remoteHeadId = remoteHeadCommit.id
+        let localHeadId = localHeadCommit ? localHeadCommit.id : null
+        if (remoteHeadId !== localHeadId) {
+            // Get the commits behind
+            let behind = remoteGraph.commitsBetween(localHeadId, remoteHeadId)
+            commitsBehind = behind.map((c) => c.id)
+        }
+    } else {
+        if (localHeadCommit) {
+            throw new Error("Irrational changes - remote branch empty, while local is not")
+        }
+    }
+
+    if (commitsBehind.length === 0) {
+        log.info('No new commits to apply to store.')
+        return null;
+    }
+
+    // Create a lookup map for quick access to upserted commits
+    const commitById = new Map<string, Commit>();
+    upsertedCommits.forEach(commit => {
+        commitById.set(commit.id, commit);
+    });
+
+    // Squash deltas from the commits behind
+    let deltas: DeltaData[] = []
+
+    for (let commitId of commitsBehind) {
+        let commit = commitById.get(commitId)
+        if (commit && commit.deltaData) {
+            deltas.push(commit.deltaData)
+        } else {
+            throw new Error(`Critical: Missing commit or deltaData for ${commitId}`)
+        }
+    }
+
+    // Return the squashed delta to apply
+    return squashDeltas(deltas)
 }

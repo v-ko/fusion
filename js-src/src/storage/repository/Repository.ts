@@ -44,7 +44,7 @@ export interface ResetFilter {
 
 export interface RepoUpdateData {
     commitGraph: CommitGraphData;
-    newCommits: CommitData[];
+    upsertedCommits: CommitData[];
 }
 
 export async function getStorageAdapter(config: StorageAdapterConfig): Promise<StorageAdapter> {
@@ -141,6 +141,7 @@ export class Repository {
         await repo._storageAdapter.applyUpdate({
             addedCommits: [],
             removedCommits: [],
+            updatedCommits: [],
             addedBranches: [{ name: repo._currentBranch, headCommitId: null }],
             updatedBranches: [],
             removedBranches: []
@@ -169,9 +170,8 @@ export class Repository {
 
     async getCommitGraph(): Promise<CommitGraph> {
         if (this._isCaching) {
-            // We don't clone here for performance reasons, but it means the
-            // caller should not mutate the returned graph.
-            return this._commitGraph;
+            // Return a defensive clone so callers cannot mutate internal graph
+            return CommitGraph.fromData(this._commitGraph.data());
         }
         return await this._storageAdapter.getCommitGraph();
     }
@@ -234,7 +234,7 @@ export class Repository {
         })
 
         // Add commit to sync graph
-        commitGraph.addCommit(commit)
+        commitGraph.addCommit(commit.metadata())
         this._commitById.set(commit.id, commit)
         commitGraph.setBranch(this._currentBranch, commit.id)
 
@@ -243,6 +243,7 @@ export class Repository {
         const internalUpdate: InternalRepoUpdate = {
             addedCommits: [commit],
             removedCommits: [],
+            updatedCommits: [],
             addedBranches: [],
             updatedBranches: [branch],
             removedBranches: []
@@ -266,6 +267,7 @@ export class Repository {
         const update: InternalRepoUpdate = {
             addedCommits: [],
             removedCommits: [],
+            updatedCommits: [],
             addedBranches: [branch],
             updatedBranches: [],
             removedBranches: []
@@ -280,12 +282,15 @@ export class Repository {
 
         let repoUpdateSlim = inferRepoChangesFromGraphs(ownGraph, remoteGraph);
 
-        // Get new commits in full (with deltas)
-        let newCommits = await repository.getCommits(
-            repoUpdateSlim.addedCommits.map((data) => data.id));
+        // Get upserted commits in full (added + updated)
+        const upsertIds = [
+            ...repoUpdateSlim.addedCommits.map((c) => c.id),
+            ...repoUpdateSlim.updatedCommits.map((c) => c.id)
+        ];
+        let upsertedCommits = upsertIds.length > 0 ? await repository.getCommits(upsertIds) : [];
 
-        // Sanity check and hydrate addedCommits with the newCommits (with deltas included)
-        let repoUpdate = sanityCheckAndHydrateInternalRepoUpdate(repoUpdateSlim, newCommits);
+        // Sanity check and hydrate (added + updated) with the upserted commits (with deltas)
+        let repoUpdate = sanityCheckAndHydrateInternalRepoUpdate(repoUpdateSlim, upsertedCommits);
 
         // Persist the changes to the underlying storage first
         await this._storageAdapter.applyUpdate(repoUpdate);
@@ -307,23 +312,26 @@ export class Repository {
 
         let repoUpdateSlim = inferRepoChangesFromGraphs(ownGraph, remoteGraph);
 
-        // Get new commits in full (with deltas)
-        let newCommits = await this._storageAdapter.getCommits(
-            repoUpdateSlim.addedCommits.map((data) => data.id));
+        // Get upserted commits in full (added + updated)
+        const upsertIds = [
+            ...repoUpdateSlim.addedCommits.map((c) => c.id),
+            ...repoUpdateSlim.updatedCommits.map((c) => c.id)
+        ];
+        let upsertedCommits = upsertIds.length > 0 ? await this._storageAdapter.getCommits(upsertIds) : [];
 
-        let repoUpdate = sanityCheckAndHydrateInternalRepoUpdate(repoUpdateSlim, newCommits);
+        let repoUpdate = sanityCheckAndHydrateInternalRepoUpdate(repoUpdateSlim, upsertedCommits);
 
         await this._applyInternalUpdateToCache(repoUpdate, remoteGraph);
     }
 
     async applyRepoUpdate(updateInfo: RepoUpdateData): Promise<void> {
         let remoteGraph = CommitGraph.fromData(updateInfo.commitGraph);
-        let newCommits = updateInfo.newCommits.map((data) => new Commit(data));
+        let upsertedCommits = updateInfo.upsertedCommits.map((data) => new Commit(data));
 
         // Form the internalRepoUpdate object
         let repoUpdateSlim = inferRepoChangesFromGraphs(this._commitGraph, remoteGraph);
-        // Sanity check and hydrate addedCommits with the newCommits (with deltas included)
-        let repoUpdate = sanityCheckAndHydrateInternalRepoUpdate(repoUpdateSlim, newCommits);
+        // Sanity check and hydrate addedCommits with the upsertedCommits (with deltas included)
+        let repoUpdate = sanityCheckAndHydrateInternalRepoUpdate(repoUpdateSlim, upsertedCommits);
 
         // Persist the changes to the underlying storage first
         await this._storageAdapter.applyUpdate(repoUpdate);
@@ -402,6 +410,7 @@ export class Repository {
         const update: InternalRepoUpdate = {
             addedCommits: [],
             removedCommits: commitsToRevert,
+            updatedCommits: [],
             addedBranches: [],
             updatedBranches: [branch],
             removedBranches: []
@@ -416,6 +425,7 @@ export class Repository {
         let {
             addedCommits,
             removedCommits,
+            updatedCommits,
             addedBranches,
             updatedBranches,
             removedBranches
@@ -427,10 +437,19 @@ export class Repository {
             cacheGraph.removeCommit(commit.id)
         })
 
+        // Update commits (full replace: metadata + delta)
+        updatedCommits.forEach((commit) => {
+            // Replace in map
+            this._commitById.set(commit.id, commit)
+            // Refresh metadata in graph
+            cacheGraph.removeCommit(commit.id)
+            cacheGraph.addCommit(commit.metadata())
+        })
+
         // Add new commits to the local map for further processing
         addedCommits.forEach((commit) => {
             this._commitById.set(commit.id, commit)
-            cacheGraph.addCommit(commit)
+            cacheGraph.addCommit(commit.metadata())
         })
 
         let commitsBehind: string[] = [] // ids

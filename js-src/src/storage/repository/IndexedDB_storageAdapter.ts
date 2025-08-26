@@ -174,6 +174,7 @@ export class IndexedDBStorageAdapter implements StorageAdapter {
         const {
             addedCommits,
             removedCommits,
+            updatedCommits,
             addedBranches,
             updatedBranches,
             removedBranches
@@ -191,10 +192,21 @@ export class IndexedDBStorageAdapter implements StorageAdapter {
             await deltasStore.delete(commit.id);
         }
 
+        // Update existing commits (full replace to keep commits+deltas consistent)
+        for (let commit of updatedCommits) {
+            await commitsStore.delete(commit.id);
+            await deltasStore.delete(commit.id);
+            await commitsStore.add(commit.metadata());
+            if (!commit.deltaData) {
+                throw new Error('Delta data missing for updated commit ' + commit.id);
+            }
+            await deltasStore.add({ commitId: commit.id, delta: commit.deltaData });
+        }
+
         // Add new commits
         for (let commit of addedCommits) {
             log.info('Adding commit', commit)
-            await commitsStore.add(commit.data());
+            await commitsStore.add(commit.metadata());
             if (!commit.deltaData) {
                 throw new Error('Delta data missing for commit ' + commit.id);
             }

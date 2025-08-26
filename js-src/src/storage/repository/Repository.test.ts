@@ -1,6 +1,6 @@
 import { DEFAULT_INDEX_CONFIGS_LIST, InMemoryStore } from "../domain-store/InMemoryStore";
 import { Change } from "../../model/Change";
-import { CommitMetadata } from "../version-control/Commit";
+import { Commit } from "../version-control/Commit";
 import { buildHashTree } from "../version-control/HashTree";
 import { Delta } from "../../model/Delta";
 import { Repository, StorageAdapterConfig } from "fusion/storage/repository/Repository";
@@ -34,8 +34,8 @@ describe("Repository base functionality", () => {
             sourceStore.insertOne(new DummyPage({ id: 'page1', parent_id: '', name: 'Page 1' })),
             sourceStore.insertOne(new DummyNote({ id: 'entity1', testProp: 'entity1', parent_id: 'page1' })),
         ]
-        let delta = Delta.fromChanges(changes)
-        let commit: CommitMetadata
+                let delta = Delta.fromChanges(changes)
+        let commit: Commit
         try{
             commit = await repo.commit(delta, 'Initial commit')
         } catch (e) {
@@ -51,7 +51,7 @@ describe("Repository base functionality", () => {
 
         // Reverse
         let reverseDelta = delta.reversed()
-        let reverseCommit: CommitMetadata
+        let reverseCommit: Commit
         try {
             reverseCommit = await repo.commit(reverseDelta, 'Reverse commit')
         } catch (e) {

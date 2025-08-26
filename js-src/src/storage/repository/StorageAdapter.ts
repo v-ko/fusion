@@ -9,13 +9,15 @@ export interface BranchMetadata {
 export interface InternalRepoUpdateNoDeltas {
     addedCommits: CommitMetadata[];
     removedCommits: CommitMetadata[];
+    updatedCommits: CommitMetadata[];
     addedBranches: BranchMetadata[];
     updatedBranches: BranchMetadata[];
     removedBranches: BranchMetadata[];
 }
 
-export interface InternalRepoUpdate extends InternalRepoUpdateNoDeltas {
+export interface InternalRepoUpdate extends Omit<InternalRepoUpdateNoDeltas, 'addedCommits' | 'updatedCommits'> {
     addedCommits: Commit[];
+    updatedCommits: Commit[];
 }
 
 export interface StorageAdapter {
