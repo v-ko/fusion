@@ -1,10 +1,10 @@
-from enum import Enum
+import functools
 import logging
 import os
 import threading
-import functools
-from typing import Callable
 from collections import defaultdict
+from enum import Enum
+from typing import Callable
 
 
 class LoggingLevels(Enum):
@@ -17,21 +17,21 @@ class LoggingLevels(Enum):
     NOTSET = 0
 
 
-log_lvl_name = os.environ.get('LOGLEVEL', LoggingLevels.ERROR.name)
-print(f'Loaded logging level {log_lvl_name=}')
+log_lvl_name = os.environ.get("LOGLEVEL", LoggingLevels.ERROR.name)
+print(f"Loaded logging level {log_lvl_name=}")
 LOGGING_LEVEL = LoggingLevels[log_lvl_name].value
 
 
 class BColors:
-    HEADER = '\033[95m'
-    OKBLUE = '\033[94m'
-    OKCYAN = '\033[96m'
-    OKGREEN = '\033[92m'
-    WARNING = '\033[93m'
-    FAIL = '\033[91m'
-    ENDC = '\033[0m'
-    BOLD = '\033[1m'
-    UNDERLINE = '\033[4m'
+    HEADER = "\033[95m"
+    OKBLUE = "\033[94m"
+    OKCYAN = "\033[96m"
+    OKGREEN = "\033[92m"
+    WARNING = "\033[93m"
+    FAIL = "\033[91m"
+    ENDC = "\033[0m"
+    BOLD = "\033[1m"
+    UNDERLINE = "\033[4m"
 
 
 function_call_stack_per_thread = defaultdict(list)
@@ -44,12 +44,16 @@ def _get_trace_decorator(logger_name: str):
         if LOGGING_LEVEL != logging.DEBUG:
             return func
 
-        name = '.'.join([logger_name, func.__name__])
+        name = ".".join([logger_name, func.__name__])
 
         # Set color to the func name to have it stand out
-        name_str = '%s.%s%s%s' % (
-            logger_name, BColors.OKBLUE, func.__name__, BColors.ENDC)
-        log = logging.getLogger('TRACE: ')
+        name_str = "%s.%s%s%s" % (
+            logger_name,
+            BColors.OKBLUE,
+            func.__name__,
+            BColors.ENDC,
+        )
+        log = logging.getLogger("TRACE: ")
 
         @functools.wraps(func)
         def wrapper_func(*args, **kwargs):
@@ -59,27 +63,29 @@ def _get_trace_decorator(logger_name: str):
 
             # Prep the log string
             stack_depth = len(function_call_stack_per_thread[thread_id])
-            indent = '.' * 4 * (stack_depth - 1)
+            indent = "." * 4 * (stack_depth - 1)
 
-            args_string = ', '.join([str(a) for a in args])
-            kwargs_string = ', '.join([f'{k}={v}' for k, v in kwargs.items()])
+            args_string = ", ".join([str(a) for a in args])
+            kwargs_string = ", ".join([f"{k}={v}" for k, v in kwargs.items()])
 
             msg = (
-                f'{indent}CALL: {name_str} '
-                f'ARGS=*({args_string}) KWARGS=**{{{kwargs_string}}}')
-            log.debug(msg, extra={'markup': True})
+                f"{indent}CALL: {name_str} "
+                f"ARGS=*({args_string}) KWARGS=**{{{kwargs_string}}}"
+            )
+            log.debug(msg, extra={"markup": True})
 
             result = func(*args, **kwargs)
 
             popped_name = function_call_stack_per_thread[thread_id].pop()
             if popped_name != name:
-                raise Exception('Stack continuity error')
+                raise Exception("Stack continuity error")
 
-            log.debug('%sEND : %s RETURNED=%s' % (indent, name_str, result))
+            log.debug("%sEND : %s RETURNED=%s" % (indent, name_str, result))
 
             return result
 
         return wrapper_func
+
     return trace_decorator
 
 

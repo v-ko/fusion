@@ -1,8 +1,8 @@
 import os
-from typing import List, Union
-from pathlib import Path
-from importlib.util import spec_from_file_location, module_from_spec
 import sys
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
+from typing import List, Union
 
 
 class ExtensionsLoader:
@@ -13,7 +13,7 @@ class ExtensionsLoader:
         py_files = []
         for root, dirs, files in os.walk(folder):
             for file in files:
-                if file.endswith('.py'):
+                if file.endswith(".py"):
                     py_files.append(folder / root / file)
 
         return py_files
@@ -21,15 +21,15 @@ class ExtensionsLoader:
     def load_all_recursively(self, folder: Path):
         py_files = self.get_py_files(folder)
         for file_path in py_files:
-            if file_path.name == 'channel.py':
+            if file_path.name == "channel.py":
                 continue
 
             rel_path = file_path.relative_to(self.root_path.parent)
-            module_name = '.'.join(rel_path.parts[:-1])
+            module_name = ".".join(rel_path.parts[:-1])
 
             # If it's the init file - use the dir name, else - the file name
-            if file_path.stem != '__init__':
-                module_name += '.' + rel_path.stem
+            if file_path.stem != "__init__":
+                module_name += "." + rel_path.stem
 
             if module_name in sys.modules:
                 continue

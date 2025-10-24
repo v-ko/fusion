@@ -17,7 +17,7 @@ class View:
         self._view_id = initial_state.view_id
 
     def __repr__(self):
-        return '<%s view_id=%s>' % (type(self).__name__, self.view_id)
+        return "<%s view_id=%s>" % (type(self).__name__, self.view_id)
 
     @property
     def view_id(self):

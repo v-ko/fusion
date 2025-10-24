@@ -6,9 +6,9 @@ it's expected that the subscribed callables are light, since the main purpose
 of fusion is GUI rendering and blocking the main loop would cause freezing.
 """
 
-from typing import Callable, Dict, Any
 from collections import defaultdict
 from dataclasses import MISSING
+from typing import Any, Callable, Dict
 
 import fusion
 from fusion import get_logger
@@ -41,10 +41,9 @@ class Subscription:
 
 class Channel:
 
-    def __init__(self,
-                 name: str,
-                 index_key: Callable = None,
-                 filter_key: Callable = None):
+    def __init__(
+        self, name: str, index_key: Callable = None, filter_key: Callable = None
+    ):
         self.name = name
         self.index_key = index_key
         self.filter_key = filter_key
@@ -56,11 +55,11 @@ class Channel:
         self.non_indexed_subs = []  # Subscriptions without index_val
 
         if name in _channels:
-            raise Exception('A channel with this name already exists')
+            raise Exception("A channel with this name already exists")
         _channels[name] = self
 
     def __repr__(self):
-        return f'<Channel name={self.name}>'
+        return f"<Channel name={self.name}>"
 
     @log.traced
     def push(self, message):
@@ -93,18 +92,21 @@ class Channel:
 
     def add_subscribtion(self, subscribtion):
         if subscribtion.props() in self.subscriptions:
-            raise Exception(f'Subscription with props {subscribtion.props()} '
-                            f'already added to channel '
-                            f'{self.name}')
+            raise Exception(
+                f"Subscription with props {subscribtion.props()} "
+                f"already added to channel "
+                f"{self.name}"
+            )
 
         self.subscriptions[subscribtion.props()] = subscribtion
 
     def remove_subscribtion(self, subscribtion):
         if subscribtion.props() not in self.subscriptions:
             raise Exception(
-                f'Cannot unsubscribe missing subscription with props'
-                f' {subscribtion.props()}'
-                f' in channel {self.name}')
+                f"Cannot unsubscribe missing subscription with props"
+                f" {subscribtion.props()}"
+                f" in channel {self.name}"
+            )
 
         self.subscriptions.pop(subscribtion.props())
 

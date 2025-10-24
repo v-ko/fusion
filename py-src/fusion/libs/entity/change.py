@@ -9,7 +9,7 @@ from typing import Any, Generator, Iterable, Optional
 from pydantic import BaseModel
 
 from fusion import get_logger
-from fusion.libs.entity import dump_to_dict, load_from_dict, Entity
+from fusion.libs.entity import Entity, dump_to_dict, load_from_dict
 from fusion.util import current_time, get_new_id, timestamp as fusion_timestamp
 
 log = get_logger(__name__)
@@ -28,7 +28,7 @@ class Diff:
 
     def return_added(self, old_val, new_val):
         if not isinstance(old_val, Iterable) and isinstance(new_val, Iterable):
-            raise Exception('Attribute type is not Iterable')
+            raise Exception("Attribute type is not Iterable")
 
         for item in new_val:
             if item not in old_val:
@@ -36,7 +36,7 @@ class Diff:
 
     def return_removed(self, old_val, new_val):
         if not isinstance(old_val, Iterable) and isinstance(new_val, Iterable):
-            raise Exception('Attribute type is not Iterable')
+            raise Exception("Attribute type is not Iterable")
 
         for item in old_val:
             if item not in new_val:
@@ -50,7 +50,7 @@ class Diff:
             pass
         elif self.change.is_delete():
             # Warning and empty
-            log.error('Trying to get list/set diff for a deleted state.')
+            log.error("Trying to get list/set diff for a deleted state.")
             # yield from []
         else:  # change.is_update()
             # if not hasattr(self.change.old_state, key):
@@ -89,8 +89,9 @@ class Updated:
             if not hasattr(self.change.old_state, key):
                 raise Exception
 
-            if getattr(self.change.old_state, key) != \
-                    getattr(self.change.new_state, key):
+            if getattr(self.change.old_state, key) != getattr(
+                self.change.new_state, key
+            ):
                 return True
             else:
                 return False
@@ -105,14 +106,16 @@ class ChangeTypes(Enum):
 
 class Change:
     """An object representing a change in the entity state. It holds the old
-     and the new states (as entities) as well as the change type.
+    and the new states (as entities) as well as the change type.
     """
 
-    def __init__(self,
-                 old_state: Entity = None,
-                 new_state: Entity = None,
-                 timestamp: str = None,
-                 id: str = None):
+    def __init__(
+        self,
+        old_state: Entity = None,
+        new_state: Entity = None,
+        timestamp: str = None,
+        id: str = None,
+    ):
         """Construct a change object. When the change is of type CREATE or
         DELETE - the old_state or new_state respectively should naturally be
         omitted.
@@ -123,27 +126,31 @@ class Change:
         self.id = id or get_new_id()
 
         # This may be done only in debug mode
-        if (old_state and not isinstance(old_state, Entity)) or \
-                (new_state and not isinstance(new_state, Entity)):
-            raise Exception('Changes can only work with Entity sublasses')
+        if (old_state and not isinstance(old_state, Entity)) or (
+            new_state and not isinstance(new_state, Entity)
+        ):
+            raise Exception("Changes can only work with Entity sublasses")
 
         self.old_state = old_state
         self.new_state = new_state
 
-        self.timestamp = timestamp or fusion_timestamp(current_time(),
-                                                       microseconds=True)
+        self.timestamp = timestamp or fusion_timestamp(
+            current_time(), microseconds=True
+        )
 
         self._added = None
         self._removed = None
         self._updated = None
 
         if not (self.old_state or self.new_state):
-            raise ValueError('Both old and new state are None.')
+            raise ValueError("Both old and new state are None.")
 
     def __repr__(self) -> str:
-        return (f'<Change id={self.id} timestamp={self.timestamp} '
-                f'type={self.change_type} '
-                f'old_state={self.old_state} new_state={self.new_state}>')
+        return (
+            f"<Change id={self.id} timestamp={self.timestamp} "
+            f"type={self.change_type} "
+            f"old_state={self.old_state} new_state={self.new_state}>"
+        )
 
     @property
     def time(self) -> datetime:
@@ -192,35 +199,37 @@ class Change:
         else:
             new_state = None
 
-        return dict(old_state=old_state,
-                    new_state=new_state,
-                    id=self.id,
-                    timestamp=self.timestamp)
+        return dict(
+            old_state=old_state,
+            new_state=new_state,
+            id=self.id,
+            timestamp=self.timestamp,
+        )
 
     @classmethod
     def from_dict(cls, change_dict: dict) -> Change:
-        if 'delta' in change_dict:
+        if "delta" in change_dict:
             return cls.from_safe_delta_dict(change_dict)
         return cls(**change_dict)
 
     @classmethod
     def from_safe_delta_dict(cls, change_dict: dict) -> Change:
-        old_state_dict = change_dict.get('old_state', None)
-        new_state_dict = change_dict.get('new_state', None)
+        old_state_dict = change_dict.get("old_state", None)
+        new_state_dict = change_dict.get("new_state", None)
 
-        if 'timestamp' not in change_dict:
-            raise Exception('Missing timestamp in change dict')
+        if "timestamp" not in change_dict:
+            raise Exception("Missing timestamp in change dict")
 
         # Get the delta and use it to generate the new_state
-        delta = change_dict.pop('delta', None)
+        delta = change_dict.pop("delta", None)
         if delta is not None:
             new_state_dict = copy(old_state_dict)
             new_state_dict.update(**delta)
 
         if old_state_dict:
-            change_dict['old_state'] = load_from_dict(old_state_dict)
+            change_dict["old_state"] = load_from_dict(old_state_dict)
         if new_state_dict:
-            change_dict['new_state'] = load_from_dict(new_state_dict)
+            change_dict["new_state"] = load_from_dict(new_state_dict)
 
         return cls(**change_dict)
 
@@ -228,8 +237,8 @@ class Change:
         self_dict = self.asdict()
 
         if self.is_update():
-            self_dict['delta'] = self.delta()
-            del self_dict['new_state']
+            self_dict["delta"] = self.delta()
+            del self_dict["new_state"]
 
         return self_dict
 

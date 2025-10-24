@@ -1,10 +1,10 @@
-from copy import copy
 import time
-from typing import Union, Callable
+from copy import copy
 from enum import Enum
+from typing import Callable, Union
 
-from fusion.util import get_new_id
 from fusion import libs
+from fusion.util import get_new_id
 
 
 class ActionRunStates(Enum):
@@ -16,21 +16,23 @@ class ActionRunStates(Enum):
 
 class ActionCall:
     """Mostly functions as a data class to carry the action state, args, kwargs
-     and profiling info.
+    and profiling info.
     """
 
-    def __init__(self,
-                 name: str,
-                 issuer: str,
-                 run_state: Union[ActionRunStates, str] = ActionRunStates.NONE,
-                 args: list = None,
-                 kwargs: dict = None,
-                 id: str = None,
-                 start_time: float = None,
-                 duration: int = -1,
-                 function: Callable | str = None,
-                 is_top_level: bool = None,
-                 error: str = ''):
+    def __init__(
+        self,
+        name: str,
+        issuer: str,
+        run_state: Union[ActionRunStates, str] = ActionRunStates.NONE,
+        args: list = None,
+        kwargs: dict = None,
+        id: str = None,
+        start_time: float = None,
+        duration: int = -1,
+        function: Callable | str = None,
+        is_top_level: bool = None,
+        error: str = "",
+    ):
 
         self.name = name
         self.issuer = issuer
@@ -66,17 +68,19 @@ class ActionCall:
             self.run_state = ActionRunStates[run_state]
 
     def __repr__(self):
-        string = (f'<Action name={self.name} run_state={self.run_state} '
-                  f'id={self.id} issuer={self.issuer}')
+        string = (
+            f"<Action name={self.name} run_state={self.run_state} "
+            f"id={self.id} issuer={self.issuer}"
+        )
         if self.duration != -1:
-            string += f'duration={self.duration:.2f}'
-        return string + '>'
+            string += f"duration={self.duration:.2f}"
+        return string + ">"
 
-    def copy(self) -> 'ActionCall':
+    def copy(self) -> "ActionCall":
         return ActionCall(**self.asdict())
 
     def asdict(self) -> dict:
         self_dict = copy(vars(self))
-        self_dict['run_state'] = self.run_state.name
-        self_dict.pop('_function')
+        self_dict["run_state"] = self.run_state.name
+        self_dict.pop("_function")
         return self_dict

@@ -1,17 +1,18 @@
 import threading
 from time import sleep
 from typing import Callable
-from PySide6.QtCore import QMetaObject, QObject, QTimer, Qt, Slot
+
+from PySide6.QtCore import QMetaObject, QObject, Qt, QTimer, Slot
 from PySide6.QtWidgets import QApplication
+
 from fusion.loop import MainLoop
 
 
 class ProxyCall(QObject):
 
-    def __init__(self,
-                 handler: callable,
-                 args: list = None,
-                 kwargs: dict = None) -> None:
+    def __init__(
+        self, handler: callable, args: list = None, kwargs: dict = None
+    ) -> None:
         super().__init__()
         self.handler = handler
         self.args = args or []
@@ -29,11 +30,13 @@ class QtMainLoop(MainLoop):
         self.queue_checksum = 0
         self.tmp_proxies_list = []
 
-    def call_delayed(self,
-                     callback: Callable,
-                     delay: float = 0,
-                     args: list = None,
-                     kwargs: dict = None):
+    def call_delayed(
+        self,
+        callback: Callable,
+        delay: float = 0,
+        args: list = None,
+        kwargs: dict = None,
+    ):
 
         args = args or []
         kwargs = kwargs or {}
@@ -55,10 +58,9 @@ class QtMainLoop(MainLoop):
             proxy = ProxyCall(report_and_callback)
             proxy.moveToThread(self.app.thread())
             self.tmp_proxies_list.append(proxy)
-            success = QMetaObject.invokeMethod(proxy, 'invoke',
-                                               Qt.QueuedConnection)
+            success = QMetaObject.invokeMethod(proxy, "invoke", Qt.QueuedConnection)
             if not success:
-                raise Exception('Failed to invoke method')
+                raise Exception("Failed to invoke method")
 
     def process_events(self, repeat: int = 0):
         # A hacky way to be sure that all posted events are called

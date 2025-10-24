@@ -1,19 +1,20 @@
-from copy import copy
 import inspect
 import json
 import time
-from pathlib import Path
 from contextlib import contextmanager
+from copy import copy
+from pathlib import Path
 
-import fusion
-from fusion.util import Point2D, Rectangle, Color
-from fusion.libs.entity import Entity
-from fusion.libs.action.action_call import ActionCall, ActionRunStates
-from fusion.libs.action import on_actions_logged
-from fusion.libs.state import ViewState
 from pamet import desktop_app
 from pamet.model.arrow import ArrowAnchorType
 from pamet.util.url import Url
+
+import fusion
+from fusion.libs.action import on_actions_logged
+from fusion.libs.action.action_call import ActionCall, ActionRunStates
+from fusion.libs.entity import Entity
+from fusion.libs.state import ViewState
+from fusion.util import Color, Point2D, Rectangle
 
 
 @contextmanager
@@ -41,9 +42,11 @@ class ActionCamera:
         self.classes_used = set()
 
     def handle_action_call(self, action_call: ActionCall):
-        if not action_call.is_top_level or \
-                action_call.run_state != ActionRunStates.FINISHED or \
-                action_call.issuer != 'user':
+        if (
+            not action_call.is_top_level
+            or action_call.run_state != ActionRunStates.FINISHED
+            or action_call.issuer != "user"
+        ):
             return
         self.TLA_calls.append(action_call)
 
@@ -63,32 +66,32 @@ class ActionCamera:
             for key, val in arg.asdict().items():
                 # key_str = self.parse_arg(key)
                 val_str = self.parse_arg(val)
-                kwarg_strings.append(f'{key}={val_str}')
-            kwargs_str = ', '.join(kwarg_strings)
-            return f'{type(arg).__name__}({kwargs_str})'
+                kwarg_strings.append(f"{key}={val_str}")
+            kwargs_str = ", ".join(kwarg_strings)
+            return f"{type(arg).__name__}({kwargs_str})"
         elif isinstance(arg, (Point2D, Rectangle, Color)):
             self.classes_used.add(type(arg))
-            return f'{type(arg).__name__}{arg.as_tuple()}'
+            return f"{type(arg).__name__}{arg.as_tuple()}"
         elif isinstance(arg, ArrowAnchorType):
             self.classes_used.add(ArrowAnchorType)
-            return f'{ArrowAnchorType.__name__}.{arg.name}'
+            return f"{ArrowAnchorType.__name__}.{arg.name}"
         elif isinstance(arg, dict):
             key_val_strings = []
             for key, val in arg.items():
-                key_val_str = f'{self.parse_arg(key)}: {self.parse_arg(val)}'
+                key_val_str = f"{self.parse_arg(key)}: {self.parse_arg(val)}"
                 key_val_strings.append(key_val_str)
-            all_data_str = ', '.join(key_val_strings)
-            return '{' + all_data_str + '}'
+            all_data_str = ", ".join(key_val_strings)
+            return "{" + all_data_str + "}"
         elif isinstance(arg, list):
-            all_data_str = ', '.join([self.parse_arg(a) for a in arg])
-            return '[' + all_data_str + ']'
+            all_data_str = ", ".join([self.parse_arg(a) for a in arg])
+            return "[" + all_data_str + "]"
         elif isinstance(arg, tuple):
-            all_data_str = ', '.join([self.parse_arg(a) for a in arg])
-            return '(' + all_data_str + ')'
+            all_data_str = ", ".join([self.parse_arg(a) for a in arg])
+            return "(" + all_data_str + ")"
         elif isinstance(arg, Url):
             return json.dumps(str(arg))
         elif arg is None:
-            return 'None'
+            return "None"
         else:
             raise Exception
 
@@ -103,14 +106,14 @@ class ActionCamera:
         # arg_strings=
         # args_str = ', '.join([self.parse_arg(arg) for arg in action_call.args])
 
-        kwargs_str = ''
+        kwargs_str = ""
         if kwargs:
             kwarg_strings = []
             for key, val in kwargs.items():
                 # key_str = self.parse_arg(key)
                 val_str = self.parse_arg(val)
-                kwarg_strings.append(f'{key}={val_str}')
-            kwargs_str = ', '.join(kwarg_strings)
+                kwarg_strings.append(f"{key}={val_str}")
+            kwargs_str = ", ".join(kwarg_strings)
 
         # If it's not the last action
         action_call_idx = self.TLA_calls.index(action_call)
@@ -123,16 +126,18 @@ class ActionCamera:
         else:
             next_start_time = time.time()
 
-        delay_before_next = (next_start_time - action_call.start_time +
-                             action_call.duration)
+        delay_before_next = (
+            next_start_time - action_call.start_time + action_call.duration
+        )
         if self.max_delay:
             delay_before_next = min(self.max_delay, delay_before_next)
-        delay_before_next_str = f'delay_before_next={delay_before_next}'
+        delay_before_next_str = f"delay_before_next={delay_before_next}"
         exec_kwargs_str = delay_before_next_str
-        exec_kwargs_str += ', apply_delay=not run_headless'
+        exec_kwargs_str += ", apply_delay=not run_headless"
         action_call_code = (
-            f'    with exec_action({exec_kwargs_str}):\n'
-            f'        {func.__module__}.{func.__name__}({kwargs_str})')
+            f"    with exec_action({exec_kwargs_str}):\n"
+            f"        {func.__module__}.{func.__name__}({kwargs_str})"
+        )
         return action_call_code
 
     def generate_code_for_recording(self, *args):
@@ -144,11 +149,12 @@ class ActionCamera:
         import_strings = []
         for class_used in self.classes_used:
             import_strings.append(
-                f'from {class_used.__module__} import {class_used.__name__}')
+                f"from {class_used.__module__} import {class_used.__name__}"
+            )
 
         imports_str = "\n".join(import_strings)
-        code_str = '\n\n'.join(action_call_code_chunks)
-        code_for_recording = f'''import pamet
+        code_str = "\n\n".join(action_call_code_chunks)
+        code_for_recording = f"""import pamet
 from fusion.visual_inspection.action_camera import exec_action
 from fusion import fsm
 
@@ -161,7 +167,7 @@ def test_new(window_fixture, request):
 {code_str}
 
     assert True
-        '''
+        """
 
         return code_for_recording
 

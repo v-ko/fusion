@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from dataclasses import field
 from typing import Type, TypeVar
 
@@ -12,7 +13,7 @@ def __hash__(self) -> int:
     return hash(self.view_id)
 
 
-T = TypeVar('T', bound='Entity')
+T = TypeVar("T", bound="Entity")
 
 
 def view_state_type(view_state_class: Type[T]) -> Type[T]:
@@ -27,6 +28,7 @@ def view_state_type(view_state_class: Type[T]) -> Type[T]:
 class ViewState(Entity):
     """Mind putting this class as last inherited when also inheriting from
     an Entity with a custom id field, so the latter does not get overwritten"""
+
     view_id: str = field(default_factory=lambda: fsm.get_view_id())
     _added: bool = field(default=False, init=False, repr=False)
     _version: int = field(default=0, init=False, repr=False)
@@ -37,15 +39,14 @@ class ViewState(Entity):
             return object.__setattr__(self, key, value)
 
         if self._added and not is_in_action():
-            raise Exception('View states can be modified only in actions')
+            raise Exception("View states can be modified only in actions")
 
         # Allow setting the view id only on init
         # It must be immutable, since view states are hashed by it
-        if key == 'view_id' and hasattr(self, key):
-            raise Exception('view_id is immutable (it\' used for hashing)')
+        if key == "view_id" and hasattr(self, key):
+            raise Exception("view_id is immutable (it' used for hashing)")
 
         Entity.__setattr__(self, key, value)
 
     def __repr__(self) -> str:
-        return (f'<{type(self).__name__} id={self.id}'
-                f'view_id={self.view_id}>')
+        return f"<{type(self).__name__} id={self.id}" f"view_id={self.view_id}>"

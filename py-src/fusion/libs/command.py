@@ -1,7 +1,8 @@
 from typing import Callable, List
 
-import fusion
 import pamet
+
+import fusion
 
 log = fusion.get_logger(__name__)
 
@@ -16,21 +17,20 @@ class Command:
         self.name = name
 
     def __repr__(self):
-        return f'<Command title={self.title}>'
+        return f"<Command title={self.title}>"
 
     def __call__(self, **context):
-        log.info(f'COMMAND triggered: {self}')
+        log.info(f"COMMAND triggered: {self}")
         try:
             self.function(**context)
         except Exception as e:
             title = f'Exception raised during command "{self.name}"'
-            pamet.desktop_app.get_app().present_exception(
-                exception=e, title=title)
+            pamet.desktop_app.get_app().present_exception(exception=e, title=title)
 
         return
 
 
-def command(title: str, name: str = ''):
+def command(title: str, name: str = ""):
 
     def decorator(function: Callable):
         if not name:

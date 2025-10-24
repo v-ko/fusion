@@ -1,8 +1,8 @@
-from contextlib import contextmanager
+import functools
 import threading
 import time
-import functools
 import traceback
+from contextlib import contextmanager
 from typing import Callable
 
 import fusion
@@ -17,8 +17,8 @@ _names_by_wrapped_func = {}
 _names_by_unwrapped_func = {}
 _unwrapped_action_funcs_by_name = {}
 
-completed_root_actions = Channel('__COMPLETED_ROOT_ACTIONS__')
-actions_log_channel = Channel('__ACTIONS_LOG__')
+completed_root_actions = Channel("__COMPLETED_ROOT_ACTIONS__")
+actions_log_channel = Channel("__ACTIONS_LOG__")
 
 _action_context_stack = []
 
@@ -67,8 +67,9 @@ def is_in_action():
 def ensure_context():
     if not is_in_action():
         raise Exception(
-            'State changes can only happen in functions decorated with the '
-            'fusion.gui.action.action decorator')
+            "State changes can only happen in functions decorated with the "
+            "fusion.gui.action.action decorator"
+        )
 
 
 # Action channel interface
@@ -76,19 +77,20 @@ def log_action_call(action_call: ActionCall):
     """Push an action to the actions channel and handle logging. Should only be
     called by the action decorator.
     """
-    args_str = ', '.join([str(a) for a in action_call.args])
-    kwargs_str = ', '.join(
-        ['%s=%s' % (k, v) for k, v in action_call.kwargs.items()])
+    args_str = ", ".join([str(a) for a in action_call.args])
+    kwargs_str = ", ".join(["%s=%s" % (k, v) for k, v in action_call.kwargs.items()])
 
-    indent = '.' * 4 * (len(_action_context_stack) - 1)
+    indent = "." * 4 * (len(_action_context_stack) - 1)
 
     green = BColors.OKGREEN
     end = BColors.ENDC
-    msg = (f'{indent}Action {green}{action_call.run_state.name} '
-           f'{action_call.name}{end} '
-           f'ARGS=*({args_str}) KWARGS=**{{{kwargs_str}}}')
+    msg = (
+        f"{indent}Action {green}{action_call.run_state.name} "
+        f"{action_call.name}{end} "
+        f"ARGS=*({args_str}) KWARGS=**{{{kwargs_str}}}"
+    )
     if action_call.duration != -1:
-        msg += f' time={action_call.duration * 1000:.2f}ms'
+        msg += f" time={action_call.duration * 1000:.2f}ms"
     log.info(msg)
 
     actions_log_channel.push(action_call.copy())
@@ -126,8 +128,7 @@ def execute_action(_action):
                 raise e
             else:
                 _action.duration = time.time() - _action.start_time
-                _action.error = (str(e) + '\n\nTraceback:\n' +
-                                 traceback.format_exc())
+                _action.error = str(e) + "\n\nTraceback:\n" + traceback.format_exc()
 
                 return_val = None
                 _action.run_state = ActionRunStates.FAILED
@@ -137,7 +138,7 @@ def execute_action(_action):
     return return_val
 
 
-def action(name: str, issuer: str = 'user'):
+def action(name: str, issuer: str = "user"):
     """A decorator that registers an action and applies safety checks.
 
     On module initialization this decorator saves the decorated function in the
@@ -151,28 +152,26 @@ def action(name: str, issuer: str = 'user'):
     """
     if not name or not isinstance(name, str):
         raise Exception(
-            'Please add the action name as an argument to the decorator. '
-            'E.g. @action(\'action_name\')')
+            "Please add the action name as an argument to the decorator. "
+            "E.g. @action('action_name')"
+        )
 
     def decorator_action(func):
 
         @functools.wraps(func)
         def wrapper_action(*args, **kwargs):
-            _action = ActionCall(name,
-                                 issuer=issuer,
-                                 args=list(args),
-                                 kwargs=kwargs)
+            _action = ActionCall(name, issuer=issuer, args=list(args), kwargs=kwargs)
 
             if fusion.libs.action.view_and_parent_update_ongoing():
-                raise Exception(
-                    'Cannot invoke an action while updating the views.')
+                raise Exception("Cannot invoke an action while updating the views.")
 
             # If we're not on the main thread - queue the action
             if threading.current_thread() != threading.main_thread():
                 if is_in_action():
                     raise Exception(
-                        'It should not be possible to invoke a nested action'
-                        'From a thread different from the main one.')
+                        "It should not be possible to invoke a nested action"
+                        "From a thread different from the main one."
+                    )
                 # print(f'Not main thread. Queueing {_action}.')
                 fusion.fsm.actions_queue_channel.push(_action)
                 return
@@ -180,8 +179,7 @@ def action(name: str, issuer: str = 'user'):
             return execute_action(_action)
 
         if name in _unwrapped_action_funcs_by_name:
-            raise Exception(f'An action with the name {name} is already'
-                            f' registered')
+            raise Exception(f"An action with the name {name} is already" f" registered")
 
         _actions_by_name[name] = wrapper_action
         _names_by_wrapped_func[wrapper_action] = name

@@ -1,0 +1,10 @@
+repos:
+  - repo: local
+    hooks:
+      - id: tox
+        name: tox (tests + format)
+        language: python
+        entry: tox --conf py-src/ --workdir py-src/build/tox
+        pass_filenames: false
+        additional_dependencies:
+          - tox

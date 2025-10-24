@@ -1,9 +1,10 @@
 from collections import defaultdict
 from typing import Any, Generator, List
+
 from fusion.libs.entity import Entity
 from fusion.libs.entity.change import Change
-from fusion.util import find_many_by_props
 from fusion.storage.repository import IMMUTABILITY_ERROR_MESSAGE, Repository
+from fusion.util import find_many_by_props
 
 
 class InMemoryRepository(Repository):
@@ -56,7 +57,7 @@ class InMemoryRepository(Repository):
 
     def insert_one(self, entity: Entity) -> Change:
         if entity.gid() in self._entity_cache:
-            raise Exception('Cannot insert {entity}, since it already exists')
+            raise Exception("Cannot insert {entity}, since it already exists")
 
         self.upsert_to_cache(entity)
         return Change.CREATE(entity)
@@ -64,7 +65,7 @@ class InMemoryRepository(Repository):
     def update_one(self, entity: Entity) -> Change:
         old_entity = self.pop_from_cache(entity.gid())
         if not old_entity:
-            raise Exception(f'Cannot update missing {entity}')
+            raise Exception(f"Cannot update missing {entity}")
 
         self.upsert_to_cache(entity)
         return Change.UPDATE(old_entity, entity)
@@ -72,17 +73,19 @@ class InMemoryRepository(Repository):
     def remove_one(self, entity: Entity) -> Change:
         old_entity = self.pop_from_cache(entity.gid())
         if not old_entity:
-            raise Exception(f'Cannot remove missing {entity}')
+            raise Exception(f"Cannot remove missing {entity}")
 
         return Change.DELETE(old_entity)
 
-    def find_cached(self,
-                    gid: str | tuple = None,
-                    type: Any = None,
-                    parent_gid: str | tuple = None,
-                    **filter) -> Generator[Any, None, None]:
+    def find_cached(
+        self,
+        gid: str | tuple = None,
+        type: Any = None,
+        parent_gid: str | tuple = None,
+        **filter,
+    ) -> Generator[Any, None, None]:
         # If searching by gid - there will be only one unique result (if any)
-        id = filter.pop('id', None)
+        id = filter.pop("id", None)
         if gid or id:
             id = gid or id
             try:
@@ -98,8 +101,7 @@ class InMemoryRepository(Repository):
         # If searching by parent_gid - use the index to do it efficiently
         if parent_gid:
             try:
-                search_set = self._entity_cache_by_parent.get(
-                    parent_gid, set())
+                search_set = self._entity_cache_by_parent.get(parent_gid, set())
             except TypeError:
                 search_set = []
         else:
@@ -107,8 +109,10 @@ class InMemoryRepository(Repository):
 
         # Searching by type is a special case
         if type:
-            if self.types_for_cached_type_filtering and \
-                    type in self.types_for_cached_type_filtering:
+            if (
+                self.types_for_cached_type_filtering
+                and type in self.types_for_cached_type_filtering
+            ):
                 type_search_set = self._entity_cache_by_type.get(type, set())
                 search_set = search_set.intersection(type_search_set)
             else:
@@ -119,10 +123,14 @@ class InMemoryRepository(Repository):
             search_set = find_many_by_props(search_set, **filter)
         yield from search_set
 
-    def find(self,
-             gid: str | tuple = None,
-             type: Any = None,
-             parent_gid: str | tuple = None,
-             **filter) -> Generator[Any, None, None]:
-        yield from (entity.copy() for entity in self.find_cached(
-            gid, type, parent_gid, **filter))
+    def find(
+        self,
+        gid: str | tuple = None,
+        type: Any = None,
+        parent_gid: str | tuple = None,
+        **filter,
+    ) -> Generator[Any, None, None]:
+        yield from (
+            entity.copy()
+            for entity in self.find_cached(gid, type, parent_gid, **filter)
+        )

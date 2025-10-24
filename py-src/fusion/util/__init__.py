@@ -1,20 +1,17 @@
 from __future__ import annotations
+
+import random
 import re
+import uuid
+from collections.abc import Iterable
+from contextlib import contextmanager
+from datetime import datetime
+from hashlib import md5
+from typing import Any, Generator, List, Union
 
-
+from .color import Color
 from .point2d import Point2D
 from .rectangle import Rectangle
-from .color import Color
-
-from contextlib import contextmanager
-from hashlib import md5
-from typing import Generator, Any, List, Union
-
-from collections.abc import Iterable
-import random
-import uuid
-from datetime import datetime
-
 
 _fake_time = None
 
@@ -44,13 +41,13 @@ def timestamp(dt: datetime, microseconds: bool = False):
     if microseconds:
         return dt.isoformat()
     else:
-        return dt.isoformat(timespec='seconds')
+        return dt.isoformat(timespec="seconds")
 
 
 def get_new_id(seed=None) -> str:
     """Get a random id"""
     if seed:
-        return md5(str(seed).encode('utf-8')).hexdigest()[-8:]
+        return md5(str(seed).encode("utf-8")).hexdigest()[-8:]
     guid = str(uuid.UUID(int=random.getrandbits(128)))[-8:]
     return guid
 
@@ -60,12 +57,13 @@ def verify_id_format(id: str) -> bool:
     # Lower case ascii letters and numbers only
     if not id:
         return False
-    expression = r'^[a-z0-9-]+$'
+    expression = r"^[a-z0-9-]+$"
     return bool(re.match(expression, id))
 
 
 def find_many_by_props(
-        item_list: Union[list, dict], **props) -> Generator[Any, None, None]:
+    item_list: Union[list, dict], **props
+) -> Generator[Any, None, None]:
     """Filter a list or dict and return only objets which have attributes
     matching the provided keyword arguments (key==attr_name and val==attr_val)
     """
@@ -92,7 +90,7 @@ def find_many_by_props(
 
 def find_one_by_props(item_list: list | dict, **props) -> Any:
     """Convenience method to filter for one object in a list or dict with
-     attributes matching the given keyword arguments.
+    attributes matching the given keyword arguments.
     """
     items_found = list(find_many_by_props(item_list, **props))
 

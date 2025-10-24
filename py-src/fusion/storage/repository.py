@@ -1,10 +1,12 @@
 from typing import List, Union
+
 from fusion import Entity
 from fusion.libs.entity.change import Change
 
 IMMUTABILITY_ERROR_MESSAGE = (
-    'Cannot alter an object after it has been added to the '
-    'repo. Make a copy of it and pass it to the repo instead.')
+    "Cannot alter an object after it has been added to the "
+    "repo. Make a copy of it and pass it to the repo instead."
+)
 
 
 class Repository:

@@ -47,20 +47,22 @@ subscription = fsm.state_changes_per_TLA_by_view_id.subscribe(
     handle_state_change, index_val=parent_state.id)
 ```
 """
+
 import fusion
-from fusion.libs.entity.change import Change
 from fusion.change_aggregator import ChangeAggregator
-from fusion.libs.channel import Channel
 from fusion.libs.action import completed_root_actions, ensure_context, execute_action
+from fusion.libs.channel import Channel
+from fusion.libs.entity.change import Change
 from fusion.libs.state import ViewState
 
 log = fusion.get_logger(__name__)
 
-raw_state_changes = Channel('__RAW_STATE_CHANGES__')
+raw_state_changes = Channel("__RAW_STATE_CHANGES__")
 state_changes_per_TLA_by_view_id = Channel(
-    '__AGGREGATED_STATE_CHANGES_PER_TLA__', lambda x: x.last_state().view_id)
+    "__AGGREGATED_STATE_CHANGES_PER_TLA__", lambda x: x.last_state().view_id
+)
 
-actions_queue_channel = Channel('__ACTIONS_QUEUE__')
+actions_queue_channel = Channel("__ACTIONS_QUEUE__")
 actions_queue_channel.subscribe(execute_action)
 
 _state_aggregator = None
@@ -76,7 +78,8 @@ def setup():
     _state_aggregator = ChangeAggregator(
         input_channel=raw_state_changes,
         release_trigger_channel=completed_root_actions,
-        output_channel=state_changes_per_TLA_by_view_id)
+        output_channel=state_changes_per_TLA_by_view_id,
+    )
 
 
 setup()
@@ -100,8 +103,7 @@ def get_view_id():
 def add_state(state_: ViewState):
     ensure_context()
     if state_.view_id in _view_states:
-        raise Exception(
-            f'View state with id {state_.view_id} already present.')
+        raise Exception(f"View state with id {state_.view_id} already present.")
     state_._added = True
     _view_states[state_.view_id] = state_
     _state_backups[state_.view_id] = state_.copy()
@@ -126,14 +128,15 @@ def get_state_backup(view_id: str):
 def update_state(state_: ViewState):
     ensure_context()
     if state_.view_id not in _view_states:
-        raise Exception('Cannot update a state which has not been added.')
+        raise Exception("Cannot update a state which has not been added.")
 
     change = Change.UPDATE(_state_backups[state_.view_id], state_)
     raw_state_changes.push(change)
 
     if (state_._version + 1) <= _view_states[state_.view_id]._version:
-        raise Exception('You\'re using an old state. This object has '
-                        'already been updated')
+        raise Exception(
+            "You're using an old state. This object has " "already been updated"
+        )
 
     _state_backups[state_.view_id] = state_.copy()
     state_._version += 1

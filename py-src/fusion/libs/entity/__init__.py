@@ -1,12 +1,14 @@
 from __future__ import annotations
+
 import json
+from dataclasses import dataclass, field, fields
 from datetime import datetime
 from typing import Type, TypeVar, Union
-from dataclasses import dataclass, field, fields
+
 from pydantic import BaseModel
 
 import fusion
-from fusion.logging import get_logger, LOGGING_LEVEL, LoggingLevels
+from fusion.logging import LOGGING_LEVEL, LoggingLevels, get_logger
 from fusion.util import get_new_id
 
 log = get_logger(__name__)
@@ -41,7 +43,7 @@ def __eq__(self, other: Entity) -> bool:
     return self.gid() == other.gid()
 
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 def entity_type(entity_class: Type[T], repr: bool = False) -> Type[T]:
@@ -54,17 +56,19 @@ def entity_type(entity_class: Type[T], repr: bool = False) -> Type[T]:
     entity_class.__hash__ = __hash__
     entity_class.__eq__ = __eq__
 
-    if hasattr(entity_class, 'type_name'):
-        raise Exception('The type_name identifier is used in the '
-                        'serialization and is prohibited.')
+    if hasattr(entity_class, "type_name"):
+        raise Exception(
+            "The type_name identifier is used in the serialization and is prohibited."
+        )
 
     entity_class = dataclass(entity_class, repr=repr)
 
     # Register the entity class
     entity_class_name = entity_class.__name__
     if entity_class_name in entity_library:
-        raise Exception('This entity class name is already registered: %s' %
-                        entity_class_name)
+        raise Exception(
+            "This entity class name is already registered: %s" % entity_class_name
+        )
 
     entity_library[entity_class_name] = entity_class
     return entity_class
@@ -72,9 +76,11 @@ def entity_type(entity_class: Type[T], repr: bool = False) -> Type[T]:
 
 def get_entity_class_by_name(entity_class_name: str):
     if entity_class_name not in entity_library:
-        raise Exception(f'Entity class {entity_class_name} not found in '
-                        f'entity library. Have you added the @entity_type '
-                        f'decorator?')
+        raise Exception(
+            f"Entity class {entity_class_name} not found in "
+            "entity library. Have you added the @entity_type "
+            "decorator?"
+        )
     return entity_library[entity_class_name]
 
 
@@ -84,16 +90,19 @@ def dump_to_dict(entity: Entity) -> dict:
     entity_class = get_entity_class_by_name(type_name)
 
     if not entity_class:
-        raise Exception(f'Entity class {type_name} not found in entity '
-                        f'library. Have you added the @entity_type decorator?')
+        raise Exception(
+            f"Entity class {type_name} not found in entity "
+            "library. Have you added the @entity_type decorator?"
+        )
 
     entity_dict = entity.asdict()
 
-    if 'type_name' in entity_dict:  #
-        raise Exception('The type_name identifier is used in the '
-                        'serialization and is prohibited.')
+    if "type_name" in entity_dict:  #
+        raise Exception(
+            "The type_name identifier is used in the serialization and is prohibited."
+        )
 
-    entity_dict['type_name'] = type_name
+    entity_dict["type_name"] = type_name
     return entity_dict
 
 
@@ -104,21 +113,23 @@ def dump_as_json(entity: Entity, ensure_ascii=False, **dump_kwargs):
 
 
 def load_from_json(json_str: str):
-    raise Exception('not tested')
+    raise Exception("not tested")
     entity_dict = json.loads(json_str)
     load_from_dict(entity_dict)
 
 
 def load_from_dict(entity_dict: dict):
-    type_name = entity_dict.pop('type_name')
+    type_name = entity_dict.pop("type_name")
     cls = get_entity_class_by_name(type_name)
 
     if not cls:
-        raise Exception(f'Entity class {type_name} not found in entity '
-                        f'library. Have you added the @entity_type decorator?')
+        raise Exception(
+            f"Entity class {type_name} not found in entity "
+            "library. Have you added the @entity_type decorator?"
+        )
 
-    if 'id' in entity_dict:
-        id = entity_dict.pop('id')
+    if "id" in entity_dict:
+        id = entity_dict.pop("id")
         if isinstance(id, list):  # Mostly when deserializing
             id = tuple(id)
         instance = cls(id=id)
@@ -127,8 +138,10 @@ def load_from_dict(entity_dict: dict):
 
     leftovers = instance.replace_silent(**entity_dict)
     if leftovers:
-        log.error(f'Leftovers while loading entity '
-                  f'(id={entity_dict.get("id", None)}): {leftovers}')
+        log.error(
+            f"Leftovers while loading entity "
+            f'(id={entity_dict.get("id", None)}): {leftovers}'
+        )
     return instance
 
 
@@ -159,17 +172,14 @@ class Entity:
     """
 
     id: str | tuple = field(default_factory=get_entity_id)
-    immutability_error_message: str = field(default=False,
-                                            init=False,
-                                            repr=False)
+    immutability_error_message: str = field(default="", init=False, repr=False)
 
     def __setattr__(self, key, value):
         # Do thorough checks only when debugging
         if LOGGING_LEVEL != LoggingLevels.DEBUG.value:
             return object.__setattr__(self, key, value)
 
-        if self.immutability_error_message and \
-                key != 'immutability_error_message':
+        if self.immutability_error_message and key != "immutability_error_message":
             raise Exception(self.immutability_error_message)
 
         if isinstance(value, datetime):
@@ -178,13 +188,13 @@ class Entity:
 
         field_names = [f.name for f in fields(self)]
         if not hasattr(self, key) and key not in field_names:
-            raise Exception('Cannot set missing attribute')
+            raise Exception("Cannot set missing attribute")
 
         # Since ids are used for hashing - it's wise to make them immutable
-        if key == 'id':
+        if key == "id":
             assert isinstance(value, (str, tuple))  # Allowed types for id
 
-            if hasattr(self, 'id'):
+            if hasattr(self, "id"):
                 raise Exception
 
         return object.__setattr__(self, key, value)
@@ -207,22 +217,22 @@ class Entity:
     #     return self.gid() == other.gid()
 
     def __repr__(self) -> str:
-        return f'<{type(self).__name__} id={self.id}>'
+        return f"<{type(self).__name__} id={self.id}>"
 
     def __copy__(self):
         return self.copy()
 
     @classmethod
     def create_silent(cls, **props):
-        if 'id' in props:
-            entity = cls(id=props.pop('id'))
+        if "id" in props:
+            entity = cls(id=props.pop("id"))
         else:
             entity = cls()
         entity.replace_silent(**props)
 
         return entity
 
-    def copy(self) -> 'Entity':
+    def copy(self) -> "Entity":
         self_copy = type(self)(**self.asdict())
         return self_copy
 
@@ -230,7 +240,7 @@ class Entity:
         """A convinience method to produce a copy with a changed id (since
         the 'id' attribute is immutable (used in hashing))."""
         self_dict = self.asdict()
-        self_dict['id'] = new_id
+        self_dict["id"] = new_id
         return type(self)(**self_dict)
 
     def gid(self) -> Union[str, tuple]:
@@ -244,10 +254,7 @@ class Entity:
     def asdict(self) -> dict:
         """Return the entity fields as a dict"""
         # The dataclasses.asdict recurses and that's not what we want
-        self_dict = {
-            f.name: getattr(self, f.name)
-            for f in fields(self) if f.repr
-        }
+        self_dict = {f.name: getattr(self, f.name) for f in fields(self) if f.repr}
 
         for key, val in self_dict.items():
             if isinstance(val, (list, dict, set)):
@@ -264,12 +271,13 @@ class Entity:
     def replace_silent(self, **changes):
         """Same as replace, but ignores fields that are not present in the
         dataclass."""
-        if 'id' in changes:
-            id = changes.pop('id')
+        if "id" in changes:
+            id = changes.pop("id")
             if id != self.id:
                 raise Exception(
-                    'The id of an entity is immutable.'
-                    'To produce a copy with a changed id use Entity.with_id')
+                    "The id of an entity is immutable."
+                    "To produce a copy with a changed id use Entity.with_id"
+                )
 
         leftovers = {}
         for key, val in changes.items():
@@ -280,18 +288,17 @@ class Entity:
         return leftovers
 
     def parent_gid(self):
-        """Remplement this to return the parent global id
-        """
+        """Remplement this to return the parent global id"""
         return None
 
-    def set_immutable(self,
-                      immutable: bool = True,
-                      error_message: str = 'Entity marked as immutable.'):
+    def set_immutable(
+        self, immutable: bool = True, error_message: str = "Entity marked as immutable."
+    ):
         """!! Works only in debugging mode (LOGLEVEL=DEBUG in env)!!
         Marks the entity as immutable and an exception with the given
         error_message is raised if __setattr__ is called."""
         if not immutable:
-            self.immutability_error_message = ''
+            self.immutability_error_message = ""
             return
 
         self.immutability_error_message = error_message

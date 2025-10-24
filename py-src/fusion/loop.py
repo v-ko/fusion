@@ -1,15 +1,18 @@
-from typing import Callable
+import asyncio
 import time
+from typing import Callable, Optional
 
 
 class MainLoop:
     """A main loop base class"""
 
-    def call_delayed(self,
-                     callback: Callable,
-                     delay: float = 0,
-                     args: list = None,
-                     kwargs: dict = None):
+    def call_delayed(
+        self,
+        callback: Callable,
+        delay: float = 0,
+        args: Optional[list] = None,
+        kwargs: Optional[dict] = None,
+    ):
 
         raise NotImplementedError
 
@@ -24,16 +27,17 @@ class NoMainLoop(MainLoop):
     def __init__(self):
         self.callback_stack = []
 
-    def call_delayed(self,
-                     callback: Callable,
-                     delay: float = 0,
-                     args: list = None,
-                     kwargs: dict = None):
+    def call_delayed(
+        self,
+        callback: Callable,
+        delay: float = 0,
+        args: Optional[list] = None,
+        kwargs: Optional[dict] = None,
+    ):
 
         args = args or []
         kwargs = kwargs or {}
-        self.callback_stack.append(
-            (callback, time.time() + delay, args, kwargs))
+        self.callback_stack.append((callback, time.time() + delay, args, kwargs))
 
     def process_events(self):
         callback_stack = self.callback_stack
@@ -60,3 +64,40 @@ def set_main_loop(main_loop: MainLoop):
 def main_loop() -> MainLoop:
     """Get the main loop object"""
     return _main_loop
+
+
+class AsyncioMainLoop(MainLoop):
+    """MainLoop backed by asyncio's event loop."""
+
+    def __init__(self, loop: asyncio.AbstractEventLoop | None = None):
+        try:
+            self._loop = loop or asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = loop or asyncio.get_event_loop()
+
+    def call_delayed(
+        self,
+        callback: Callable,
+        delay: float = 0,
+        args: Optional[list] = None,
+        kwargs: Optional[dict] = None,
+    ):
+        args = args or []
+        kwargs = kwargs or {}
+
+        def _runner():
+            try:
+                callback(*args, **kwargs)
+            except Exception as exc:  # noqa: BLE001
+                from fusion import main_loop_exception_handler
+
+                main_loop_exception_handler(exc)
+
+        if delay <= 0:
+            self._loop.call_soon(_runner)
+        else:
+            self._loop.call_later(delay, _runner)
+
+    def process_events(self):
+        # asyncio loop drives itself
+        pass

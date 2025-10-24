@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "python-fusion"
-version = "0.8.7"
+version = "0.9.0"
 description = "An experimental state manager"
 authors = [{ name = "Petko Dichev", email = "pditchev@gmail.com" }]
 license = { text = "GPLv3" }
@@ -16,7 +16,23 @@ classifiers = [
     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Operating System :: OS Independent",
 ]
-dependencies = [
-    "peewee",
-    "pydantic",
-]
+dependencies = ["peewee", "pydantic"]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-asyncio", "black", "isort", "pre-commit", "tox"]
+
+[tool.black]
+line-length = 88
+
+[tool.isort]
+profile = "black"
+line_length = 88
+combine_as_imports = true
+
+[tool.tox]
+requires = ["tox>=4.19"]
+
+[tool.tox.env_run_base]
+description = "Run formatting + tests"
+commands = [["black", "."], ["isort", "."], ["pytest"]]
+deps = [".[dev]"]

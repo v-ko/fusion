@@ -1,7 +1,7 @@
-
 from __future__ import annotations
-from typing import Tuple
+
 import math
+from typing import Tuple
 
 
 class Point2D:
@@ -10,7 +10,7 @@ class Point2D:
         self._y = y
 
     def __repr__(self):
-        return '<Point x=%s y=%s>' % (self.x(), self.y())
+        return "<Point x=%s y=%s>" % (self.x(), self.y())
 
     def __eq__(self, other: Point2D) -> bool:
         return self.x() == other.x() and self.y() == other.y()
@@ -49,15 +49,13 @@ class Point2D:
         return (self._x, self._y)
 
     def distance_to(self, point: Point2D) -> float:
-        distance = math.sqrt(
-            (self.x() - point.x())**2 + (self.y() - point.y())**2)
+        distance = math.sqrt((self.x() - point.x()) ** 2 + (self.y() - point.y()) ** 2)
         return distance
 
     def rotated(self, radians: float, origin: Point2D) -> Point2D:
-        """Rotate the point around a given origin.
-        """
-        adjusted_x = (self.x() - origin.x())
-        adjusted_y = (self.y() - origin.y())
+        """Rotate the point around a given origin."""
+        adjusted_x = self.x() - origin.x()
+        adjusted_y = self.y() - origin.y()
         cos_rad = math.cos(radians)
         sin_rad = math.sin(radians)
         qx = origin.x() + cos_rad * adjusted_x + sin_rad * adjusted_y

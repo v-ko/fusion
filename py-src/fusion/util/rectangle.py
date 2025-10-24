@@ -1,4 +1,4 @@
-from typing import Union, Tuple
+from typing import Tuple, Union
 
 from fusion.util import Point2D
 
@@ -11,8 +11,7 @@ class Rectangle:
         self._h = h
 
     @classmethod
-    def from_points(
-            cls, top_left: Point2D, bottom_right: Point2D) -> 'Rectangle':
+    def from_points(cls, top_left: Point2D, bottom_right: Point2D) -> "Rectangle":
         size = top_left - bottom_right
         x = min(top_left.x(), bottom_right.x())
         y = min(top_left.y(), bottom_right.y())
@@ -20,9 +19,9 @@ class Rectangle:
         return cls(x, y, w, h)
 
     def __repr__(self):
-        return ('<Rectangle x=%s y=%s width=%s height=%s ' % self.as_tuple())
+        return "<Rectangle x=%s y=%s width=%s height=%s " % self.as_tuple()
 
-    def __eq__(self, other: 'Rectangle'):
+    def __eq__(self, other: "Rectangle"):
         return self.as_tuple() == other.as_tuple()
 
     def x(self) -> float:
@@ -91,9 +90,9 @@ class Rectangle:
         return self.top_left() + self.size() / 2
 
     def area(self) -> Point2D:
-        return self.width() * self. height()
+        return self.width() * self.height()
 
-    def intersection(self, other: 'Rectangle') -> Union['Rectangle', None]:
+    def intersection(self, other: "Rectangle") -> Union["Rectangle", None]:
         """Calculate the intersection of two rectangles
 
         Returns:
@@ -111,7 +110,7 @@ class Rectangle:
 
         return type(self)(x1, y1, x2 - x1, y2 - y1)
 
-    def intersects(self, other: 'Rectangle') -> bool:
+    def intersects(self, other: "Rectangle") -> bool:
         """Returns True if there's an intersection with the given rectangle
         otherwise returns False
         """
@@ -121,12 +120,11 @@ class Rectangle:
             return False
 
     def contains(self, point: Point2D) -> bool:
-        """Returns True if the rectangle contains the point, otherwise False
-        """
-        return ((self.x() <= point.x() <= self.right()) and
-                (self.y() <= point.y() <= self.bottom()))
+        """Returns True if the rectangle contains the point, otherwise False"""
+        return (self.x() <= point.x() <= self.right()) and (
+            self.y() <= point.y() <= self.bottom()
+        )
 
     def as_tuple(self) -> Tuple[float, float, float, float]:
-        """Returns a list with the rectangle parameters ([x, y, w, h])
-        """
+        """Returns a list with the rectangle parameters ([x, y, w, h])"""
         return (self._x, self._y, self._w, self._h)

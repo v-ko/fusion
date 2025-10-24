@@ -3,13 +3,14 @@ import random
 import time
 from typing import Any, Callable
 
+from fusion.logging import get_logger
 from fusion.loop import MainLoop, NoMainLoop
 
-__version__ = importlib.metadata.version('python-fusion')
+__version__ = importlib.metadata.version("python-fusion")
 
-from .logging import get_logger
-from fusion.libs.entity import entity_type, Entity
+from fusion.libs.entity import Entity, entity_type
 from fusion.libs.entity.change import Change, ChangeTypes
+
 # from fusion.state_manager import FusionStateManager
 from fusion.loop import main_loop, set_main_loop
 
@@ -33,10 +34,9 @@ _main_loop_exception_handler = None
 #     fsm._fsm = manager
 
 
-def call_delayed(callback: Callable,
-                 delay: float = 0,
-                 args: list = None,
-                 kwargs: dict = None):
+def call_delayed(
+    callback: Callable, delay: float = 0, args: list = None, kwargs: dict = None
+):
     """Call a function with a delay on the main loop.
 
     Args:
@@ -50,7 +50,7 @@ def call_delayed(callback: Callable,
     kwargs = kwargs or {}
 
     if not callback:
-        raise Exception('Callback cannot be None')
+        raise Exception("Callback cannot be None")
 
     main_loop().call_delayed(callback, delay, args, kwargs)
 
