@@ -1,18 +1,18 @@
-import { MediaStoreAdapter } from "./MediaStoreAdapter";
-import { extractImageDimensions, generateContentHash } from "../../util/media";
+import { FileStoreAdapter } from "./FileStoreAdapter";
+import { generateContentHash } from "../../util/media";
 import { getLogger } from "../../logging";
-import { MediaItem, MediaItemData } from "../../model/MediaItem";
+import { FileItem, FileItemData, FileItemMetadata } from "../../model/FileItem";
 
-const log = getLogger('CacheMediaStoreAdapter');
+const log = getLogger('CacheFileStoreAdapter');
 
-export class CacheMediaStoreAdapter implements MediaStoreAdapter {
+export class CacheFileStoreAdapter implements FileStoreAdapter {
   private _projectId: string;
   private _cacheName: string;
   private _cache: Cache | null = null;
 
   constructor(projectId: string) {
     this._projectId = projectId;
-    this._cacheName = `pamet-media-${projectId}`;
+    this._cacheName = `pamet-file-${projectId}`;
   }
 
   async init(): Promise<void> {
@@ -20,11 +20,11 @@ export class CacheMediaStoreAdapter implements MediaStoreAdapter {
       this._cache = await caches.open(this._cacheName);
       log.info(`Opened Cache API store: ${this._cacheName}`);
 
-      // // Set up fetch interception for media requests
+      // // Set up fetch interception for file requests
       // this.setupFetchInterception();
     } catch (error) {
       log.error('Failed to initialize Cache API:', error);
-      throw new Error(`Failed to initialize CacheMediaStoreAdapter: ${error}`);
+      throw new Error(`Failed to initialize CacheFileStoreAdapter: ${error}`);
     }
   }
 
@@ -36,43 +36,28 @@ export class CacheMediaStoreAdapter implements MediaStoreAdapter {
   }
 
   private _getCacheKey(id: string, contentHash: string): string {
-    // Create relative cache key without user/project prefix: media/item/{id}#{contentHash}
+    // Create relative cache key without user/project prefix: file/item/{id}#{contentHash}
     // This makes storage user-agnostic, with security handled by cleanup on logout
-    return `media/item/${id}#${contentHash}`;
+    return `file/item/${id}#${contentHash}`;
   }
 
-  async addMedia(blob: Blob, path: string, parentId: string): Promise<MediaItemData> {
-    log.info(`Adding media to cache: ${path} (${blob.type}, ${blob.size} bytes)`);
+  async addFile(blob: Blob, path: string, parentId: string, metadata: FileItemMetadata): Promise<FileItemData> {
+    log.info(`Adding file to cache: ${path} (${blob.type}, ${blob.size} bytes)`);
     // Generate content hash first
     const contentHash = (await generateContentHash(blob)).slice(0, 32); // Cut down the sha-256 hash to 32 characters
 
-    // Extract image dimensions if it's an image
-    let width = 0;
-    let height = 0;
-
-    if (blob.type.startsWith('image/')) {
-      try {
-        const dimensions = await extractImageDimensions(blob);
-        width = dimensions.width;
-        height = dimensions.height;
-      } catch (error) {
-        log.warning('Failed to extract image dimensions:', error);
-      }
-    }
-
-    // Create the MediaItem
-    const mediaItem = MediaItem.create({
+    // Create the FileItem
+    const fileItem = FileItem.create({
       path: path, // Store relative path (e.g. "images/photo.jpg")
       contentHash,
-      width,
-      height,
       mimeType: blob.type,
       size: blob.size,
-      parent_id: parentId
+      parent_id: parentId,
+      metadata
     });
 
-    // Create the cache key using MediaItem ID
-    const cacheKey = this._getCacheKey(mediaItem.id, contentHash);
+    // Create the cache key using FileItem ID
+    const cacheKey = this._getCacheKey(fileItem.id, contentHash);
 
     // Store the blob in the Cache API using the cache key
     const response = new Response(blob.slice(), {
@@ -84,42 +69,42 @@ export class CacheMediaStoreAdapter implements MediaStoreAdapter {
     });
 
     await this.cache.put(cacheKey, response);
-    log.info(`Added media to cache: ${cacheKey}`);
+    log.info(`Added file to cache: ${cacheKey}`);
 
-    return mediaItem.data(); // Return the data instead of the MediaItem instance
+    return fileItem.data(); // Return the data instead of the ImageItem instance
   }
 
-  async getMedia(mediaId: string, mediaHash: string): Promise<Blob> {
-    // Create cache key from mediaId and mediaHash
-    const cacheKey = this._getCacheKey(mediaId, mediaHash);
+  async getFile(fileId: string, fileHash: string): Promise<Blob> {
+    // Create cache key from fileId and fileHash
+    const cacheKey = this._getCacheKey(fileId, fileHash);
 
     const response = await this.cache.match(cacheKey);
 
     if (!response) {
-      throw new Error(`Media not found in cache: ${cacheKey}`);
+      throw new Error(`File not found in cache: ${cacheKey}`);
     }
 
     return await response.blob();
   }
 
-  async removeMedia(mediaId: string, contentHash: string): Promise<void> {
-    const cacheKey = this._getCacheKey(mediaId, contentHash);
+  async removeFile(fileId: string, contentHash: string): Promise<void> {
+    const cacheKey = this._getCacheKey(fileId, contentHash);
     const deleted = await this.cache.delete(cacheKey);
 
     if (deleted) {
-      log.info(`Removed media from cache: ${cacheKey}`);
+      log.info(`Removed file from cache: ${cacheKey}`);
     } else {
-      log.warning(`Media not found for deletion: ${cacheKey}`);
+      log.warning(`File not found for deletion: ${cacheKey}`);
     }
   }
 
-  async moveMediaToTrash(mediaId: string, contentHash: string): Promise<void> {
-    const cacheKey = this._getCacheKey(mediaId, contentHash);
+  async moveFileToTrash(fileId: string, contentHash: string): Promise<void> {
+    const cacheKey = this._getCacheKey(fileId, contentHash);
     const request = new Request(cacheKey);
     const response = await this.cache.match(request);
 
     if (!response) {
-      log.warning(`Media not found for trashing: ${cacheKey}`);
+      log.warning(`File not found for trashing: ${cacheKey}`);
       return;
     }
 
@@ -134,16 +119,16 @@ export class CacheMediaStoreAdapter implements MediaStoreAdapter {
     });
 
     await this.cache.put(request, newResponse);
-    log.info(`Marked media for trashing in cache: ${cacheKey}`);
+    log.info(`Marked file for trashing in cache: ${cacheKey}`);
   }
 
-  async restoreMediaFromTrash(mediaId: string, contentHash: string): Promise<void> {
-    const cacheKey = this._getCacheKey(mediaId, contentHash);
+  async restoreFileFromTrash(fileId: string, contentHash: string): Promise<void> {
+    const cacheKey = this._getCacheKey(fileId, contentHash);
     const request = new Request(cacheKey);
     const response = await this.cache.match(request);
 
     if (!response) {
-      log.warning(`Media not found for restore: ${cacheKey}`);
+      log.warning(`File not found for restore: ${cacheKey}`);
       return;
     }
 
@@ -159,11 +144,11 @@ export class CacheMediaStoreAdapter implements MediaStoreAdapter {
     });
 
     await this.cache.put(request, newResponse);
-    log.info(`Restored media in cache: ${cacheKey}`);
+    log.info(`Restored file in cache: ${cacheKey}`);
   }
 
   async cleanTrash(): Promise<void> {
-    log.info('Cache API media trash is cleaned automatically by the browser based on expiry headers.');
+    log.info('Cache API file trash is cleaned automatically by the browser based on expiry headers.');
     // Potentially, we could iterate and count items, but it's not necessary.
   }
 
@@ -171,6 +156,6 @@ export class CacheMediaStoreAdapter implements MediaStoreAdapter {
   async close(): Promise<void> {
     // Cache API doesn't need explicit closing
     this._cache = null;
-    log.info(`Closed CacheMediaStoreAdapter: ${this._cacheName}`);
+    log.info(`Closed CacheFileStoreAdapter: ${this._cacheName}`);
   }
 }

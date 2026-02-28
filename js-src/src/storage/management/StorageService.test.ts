@@ -64,7 +64,7 @@ describe("StorageService base functionality", () => {
             deviceBranchName: 'dev1',
             storeIndexConfigs: indexConfigs,
             onDeviceStorageAdapter: INMEM_PROJECT_STORAGE_CONFIG,
-            onDeviceMediaStore: {
+            onDeviceFileStore: {
                 name: "InMemory",
                 args: { projectId }
             }
@@ -153,31 +153,31 @@ describe("StorageService base functionality", () => {
         expect(newEntities.length).toBe(2);
     });
 
-    test('Media operations', async () => {
+    test('File operations', async () => {
         // Load project
         await storageService.createProject(projectId, projectStorageConfig);
         await storageService.loadProject(projectId, projectStorageConfig, () => { });
 
-        // Add a media blob
+        // Add a file blob
         const blob = new Blob(['test content'], { type: 'text/plain' });
-        const mediaData = await storageService.addMedia(projectId, blob, '/test.txt', 'some-parent-id');
+        const fileData = await storageService.addFile(projectId, blob, '/test.txt', 'some-parent-id', {});
 
-        expect(mediaData).toBeDefined();
-        expect(mediaData.id).toBeDefined();
-        expect(mediaData.contentHash).toBeDefined();
+        expect(fileData).toBeDefined();
+        expect(fileData.id).toBeDefined();
+        expect(fileData.contentHash).toBeDefined();
 
-        // Get the media blob
-        const retrievedBlob = await storageService.getMedia(projectId, mediaData.id, mediaData.contentHash);
+        // Get the file blob
+        const retrievedBlob = await storageService.getFile(projectId, fileData.id, fileData.contentHash);
         expect(retrievedBlob).toBeDefined();
         expect(retrievedBlob.size).toBe(blob.size);
         expect(retrievedBlob.type).toBe(blob.type);
         expect(await retrievedBlob.text()).toBe('test content');
 
-        // Remove the media
-        await storageService.removeMedia(projectId, mediaData.id, mediaData.contentHash);
+        // Remove the file
+        await storageService.removeFile(projectId, fileData.id, fileData.contentHash);
 
         // Verify it's removed by trying to get it again
-        await expect(storageService.getMedia(projectId, mediaData.id, mediaData.contentHash)).rejects.toThrow();
+        await expect(storageService.getFile(projectId, fileData.id, fileData.contentHash)).rejects.toThrow();
     });
     test("Squash old prefix commits by TTL", async () => {
         // Create and load project

@@ -24,7 +24,7 @@ describe("ProjectStorageManager base functionality", () => {
             deviceBranchName: 'dev1',
             storeIndexConfigs: indexConfigs,
             onDeviceStorageAdapter: INMEM_PROJECT_STORAGE_CONFIG,
-            onDeviceMediaStore: {
+            onDeviceFileStore: {
                 name: "InMemory",
                 args: { projectId }
             }
@@ -40,7 +40,7 @@ describe("ProjectStorageManager base functionality", () => {
         // Create project
         await projectStorageManager.createProject();
         expect(projectStorageManager.onDeviceRepo).toBeDefined();
-        expect(projectStorageManager.mediaStore).toBeDefined();
+        expect(projectStorageManager.fileStore).toBeDefined();
         expect(projectStorageManager.onDeviceRepo.hashTree).toBeDefined();
         expect(projectStorageManager.onDeviceRepo._commitGraph).toBeDefined();
         expect(projectStorageManager.onDeviceRepo._commitGraph.branches()).toHaveLength(1);

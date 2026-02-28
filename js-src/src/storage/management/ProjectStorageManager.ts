@@ -1,55 +1,67 @@
 import { getStorageAdapter, Repository, RepositoryIntegrityError, StorageAdapterConfig, verifyRepositoryIntegrity } from "../repository/Repository";
-import { MediaStoreAdapter } from "../media-store/MediaStoreAdapter";
-import { InMemoryMediaStoreAdapter } from "../media-store/InMemoryMediaStoreAdapter";
-import { CacheMediaStoreAdapter } from "../media-store/CacheMediaStoreAdapter";
+import { FileStoreAdapter } from "../file-store/FileStoreAdapter";
+import { InMemoryFileStoreAdapter } from "../file-store/InMemoryFileStoreAdapter";
+import { CacheFileStoreAdapter } from "../file-store/CacheFileStoreAdapter";
+import { RestApiFileStoreAdapter } from "../file-store/RestApiFileStoreAdapter";
 import { getLogger } from "../../logging";
 import { IndexConfig } from "../domain-store/InMemoryStore";
+import { RestApiAuthConfig } from "../rest-api/Auth";
 
 let log = getLogger('ProjectStorageManager');
 
 export interface ProjectStorageConfig {
     deviceBranchName: string;
     storeIndexConfigs: readonly IndexConfig[];
-    onDeviceStorageAdapter: StorageAdapterConfig;  // IndexedDB, DesktopServer, Cloud (for thin clients), InMemory for testing
-    onDeviceMediaStore: MediaStoreConfig;  // CacheAPI, DesktopServer, Cloud (for thin clients), InMemory for testing
+    onDeviceStorageAdapter: StorageAdapterConfig;  // IndexedDB, RestApi, Cloud (for thin clients), InMemory for testing
+    onDeviceFileStore: FileStoreConfig;  // CacheAPI, RestApi, Cloud (for thin clients), InMemory for testing
 }
 
-export interface MediaStoreConfig {
-    name: MediaStoreAdapterNames;
-    args: MediaStoreAdapterArgs;
+export interface FileStoreConfig {
+    name: FileStoreAdapterNames;
+    args: FileStoreAdapterArgs;
 }
 
-export interface MediaStoreAdapterArgs {
+export interface FileStoreAdapterArgs {
     projectId: string;
+    baseUrl?: string;
+    auth?: RestApiAuthConfig;
 }
 
-export type MediaStoreAdapterNames = "InMemory" | "CacheAPI" | "DesktopServer";
+export type FileStoreAdapterNames = "InMemory" | "CacheAPI" | "RestApi";
 
-async function initMediaStore(config: MediaStoreConfig): Promise<MediaStoreAdapter> {
-    let mediaStore: MediaStoreAdapter;
+async function initFileStore(config: FileStoreConfig): Promise<FileStoreAdapter> {
+    let fileStore: FileStoreAdapter;
 
     switch (config.name) {
         case "InMemory": {
-            let inMemMediaStore = new InMemoryMediaStoreAdapter();
-            mediaStore = inMemMediaStore
+            let inMemFileStore = new InMemoryFileStoreAdapter();
+            fileStore = inMemFileStore
             break;
         }
         case "CacheAPI": {
-            let cacheMediaStore = new CacheMediaStoreAdapter(config.args.projectId);
-            await cacheMediaStore.init();
-            log.info('Initialized CacheMediaStoreAdapter for project', config.args.projectId);
-            mediaStore = cacheMediaStore
+            let cacheFileStore = new CacheFileStoreAdapter(config.args.projectId);
+            await cacheFileStore.init();
+            log.info('Initialized CacheFileStoreAdapter for project', config.args.projectId);
+            fileStore = cacheFileStore
             break;
         }
-        case "DesktopServer": {
-            throw new Error("DesktopServer not implemented yet")
+        case "RestApi": {
+            const { projectId, baseUrl, auth } = config.args;
+            if (!baseUrl) {
+                throw new Error("RestApi file store requires args.baseUrl in config");
+            }
+            if (!auth) {
+                throw new Error("RestApi file store requires args.auth in config");
+            }
+            fileStore = new RestApiFileStoreAdapter(projectId, baseUrl, auth);
+            break;
         }
         default: {
-            throw new Error(`Unknown media store name: ${config.name}`)
+            throw new Error(`Unknown file store name: ${config.name}`)
         }
     }
 
-    return mediaStore
+    return fileStore
 }
 
 
@@ -76,7 +88,7 @@ export class ProjectStorageManager {
      */
     private _config: ProjectStorageConfig;
     _onDeviceRepo: Repository | null = null;
-    private _localMediaStore: MediaStoreAdapter | null = null;
+    private _localFileStore: FileStoreAdapter | null = null;
 
     constructor(config: ProjectStorageConfig) {
         this._config = config
@@ -92,11 +104,11 @@ export class ProjectStorageManager {
         }
         return this._onDeviceRepo
     }
-    get mediaStore() {
-        if (!this._localMediaStore) {
-            throw new Error("Media store not set. Have you called init?")
+    get fileStore() {
+        if (!this._localFileStore) {
+            throw new Error("File store not set. Have you called init?")
         }
-        return this._localMediaStore
+        return this._localFileStore
     }
     get config(): ProjectStorageConfig {
         return this._config
@@ -115,11 +127,11 @@ export class ProjectStorageManager {
                 throw e;
             }
         }
-        this._localMediaStore = await initMediaStore(this.config.onDeviceMediaStore)
+        this._localFileStore = await initFileStore(this.config.onDeviceFileStore)
     }
     async createProject(): Promise<void> {
         this._onDeviceRepo = await Repository.create(this.config.onDeviceStorageAdapter, true, this.config.storeIndexConfigs);
-        this._localMediaStore = await initMediaStore(this.config.onDeviceMediaStore);
+        this._localFileStore = await initFileStore(this.config.onDeviceFileStore);
     }
 
     shutdown() {

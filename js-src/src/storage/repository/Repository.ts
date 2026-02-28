@@ -9,9 +9,11 @@ import { HangingSubtreesError, HashTree, buildHashTree, updateHashTree } from ".
 import { InMemoryStore, IndexConfig } from "../domain-store/InMemoryStore";
 import { InMemoryStorageAdapter } from "./InMemoryStorageAdapter";
 import { IndexedDBStorageAdapter } from "./IndexedDB_storageAdapter";
+import { RestApiStorageAdapter } from "./RestApiStorageAdapter";
+import { RestApiAuthConfig } from "../rest-api/Auth";
 let log = getLogger('Repository')
 
-export type StorageAdapterNames = "InMemory" | "IndexedDB" | "InMemorySingletonForTesting";
+export type StorageAdapterNames = "InMemory" | "IndexedDB" | "RestApi" | "InMemorySingletonForTesting";
 
 // For running tests only
 let _inmemadapter_instances_by_id: Map<string, InMemoryStorageAdapter> = new Map();
@@ -31,6 +33,8 @@ export interface StorageAdapterArgs {
     projectId: string;
     localBranchName: string;
     indexConfig?: any; // For InMemory, can be used to pass index configuration
+    baseUrl?: string;
+    auth?: RestApiAuthConfig;
 }
 
 export interface StorageAdapterConfig {
@@ -55,6 +59,20 @@ export async function getStorageAdapter(config: StorageAdapterConfig): Promise<S
         const storageAdapter = new IndexedDBStorageAdapter(projectId);
         await storageAdapter.initialize();
         return storageAdapter;
+    } else if (config.name === 'RestApi') {
+        const { projectId, localBranchName, baseUrl, auth } = config.args;
+        if (!baseUrl) {
+            throw new Error("RestApi storage adapter requires args.baseUrl in config");
+        }
+        if (!auth) {
+            throw new Error("RestApi storage adapter requires args.auth in config");
+        }
+        return new RestApiStorageAdapter(
+            projectId,
+            localBranchName,
+            baseUrl,
+            auth,
+        );
     } else if (config.name === 'InMemorySingletonForTesting') {
         const { projectId } = config.args;
         if (!_inmemadapter_instances_by_id.has(projectId)) {
