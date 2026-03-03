@@ -19,11 +19,9 @@ export class InMemoryFileStoreAdapter implements FileStoreAdapter {
 
         const fileItem = FileItem.create({
             path: path,
-            contentHash,
-            mimeType: blob.type,
-            size: blob.size,
+            content: { hash: contentHash },
             parent_id: parentId,
-            metadata
+            metadata: metadata
         });
 
         const storageKey = this._getStorageKey(fileItem.id, contentHash);

@@ -29,11 +29,9 @@ export class RestApiFileStoreAdapter implements FileStoreAdapter {
 
     const fileItem = FileItem.create({
       path,
-      contentHash,
-      mimeType: blob.type,
-      size: blob.size,
+      content: { hash: contentHash },
       parent_id: parentId,
-      metadata
+      metadata: metadata
     });
 
     // Upload blob to desktop server under id + hash mapping

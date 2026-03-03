@@ -102,8 +102,8 @@ describe("StorageService base functionality", () => {
         await storageService.unloadProject(projectId);
         await expect(storageService.getCommitGraph(projectId)).rejects.toThrow();
 
-        // Second unload should fail
-        await expect(storageService.unloadProject(projectId)).rejects.toThrow();
+        // Second unload is a no-op (idempotent)
+        await storageService.unloadProject(projectId);
 
         // Delete to avoid errors on the next test
         await storageService.deleteProject(projectId, projectStorageConfig);
@@ -160,24 +160,24 @@ describe("StorageService base functionality", () => {
 
         // Add a file blob
         const blob = new Blob(['test content'], { type: 'text/plain' });
-        const fileData = await storageService.addFile(projectId, blob, '/test.txt', 'some-parent-id', {});
+        const fileData = await storageService.addFile(projectId, blob, '/test.txt', 'some-parent-id', { size: blob.size, mimeType: blob.type });
 
         expect(fileData).toBeDefined();
         expect(fileData.id).toBeDefined();
-        expect(fileData.contentHash).toBeDefined();
+        expect(fileData.content.hash).toBeDefined();
 
         // Get the file blob
-        const retrievedBlob = await storageService.getFile(projectId, fileData.id, fileData.contentHash);
+        const retrievedBlob = await storageService.getFile(projectId, fileData.id, fileData.content.hash);
         expect(retrievedBlob).toBeDefined();
         expect(retrievedBlob.size).toBe(blob.size);
         expect(retrievedBlob.type).toBe(blob.type);
         expect(await retrievedBlob.text()).toBe('test content');
 
         // Remove the file
-        await storageService.removeFile(projectId, fileData.id, fileData.contentHash);
+        await storageService.removeFile(projectId, fileData.id, fileData.content.hash);
 
         // Verify it's removed by trying to get it again
-        await expect(storageService.getFile(projectId, fileData.id, fileData.contentHash)).rejects.toThrow();
+        await expect(storageService.getFile(projectId, fileData.id, fileData.content.hash)).rejects.toThrow();
     });
     test("Squash old prefix commits by TTL", async () => {
         // Create and load project

@@ -49,11 +49,9 @@ export class CacheFileStoreAdapter implements FileStoreAdapter {
     // Create the FileItem
     const fileItem = FileItem.create({
       path: path, // Store relative path (e.g. "images/photo.jpg")
-      contentHash,
-      mimeType: blob.type,
-      size: blob.size,
+      content: { hash: contentHash },
       parent_id: parentId,
-      metadata
+      metadata: metadata
     });
 
     // Create the cache key using FileItem ID

@@ -121,8 +121,7 @@ export class StorageService {
     _workerRegistration: ServiceWorkerRegistration | null = null;
     _localUpdateChannel: Channel | null = null;
     _localUpdateSubscription: Subscription | null = null;
-    _currentProjectId: string | null = null; // Only one project allowed per tab
-    _localStorageUpdateCallback: RepoUpdateNotifiedSignature | null = null; // Callback for current project
+    _projectUpdateCallbacks: Map<string, RepoUpdateNotifiedSignature> = new Map();
     _isWrapper: boolean = false; // whether this is a wrapper for the service worker or a main thread instance
 
     constructor() {
@@ -134,8 +133,9 @@ export class StorageService {
     _handleChannelMessage(updateMessage: LocalStorageUpdateMessage) {
         log.info('Received local storage update', updateMessage);
 
-        if (this._currentProjectId === updateMessage.projectId && this._localStorageUpdateCallback) {
-            this._localStorageUpdateCallback(updateMessage.update);
+        const callback = this._projectUpdateCallbacks.get(updateMessage.projectId);
+        if (callback) {
+            callback(updateMessage.update);
         }
     }
 
@@ -218,30 +218,21 @@ export class StorageService {
     }
 
     // Proxy interface methods
-    async loadProject(projectId: string, projectStorageConfig: ProjectStorageConfig, commitNotify: RepoUpdateNotifiedSignature): Promise<void> {
-        // Enforce one project per tab restriction
-        if (this._currentProjectId) {
-            throw new Error(`Cannot load project ${projectId}. Project ${this._currentProjectId} is already loaded. Only one project per tab is allowed.`);
-        }
-
+    async loadProject(projectId: string, projectStorageConfig: ProjectStorageConfig, commitNotify?: RepoUpdateNotifiedSignature): Promise<void> {
         log.info('Loading project with storage config', projectStorageConfig)
         await this.service.loadProject(projectId, projectStorageConfig);
 
-        // Store current project and callback
-        this._currentProjectId = projectId;
-        this._localStorageUpdateCallback = commitNotify;
+        // Register update callback for this project (if provided)
+        if (commitNotify) {
+            this._projectUpdateCallbacks.set(projectId, commitNotify);
+        }
     }
     async unloadProject(projectId: string): Promise<void> {
-        if (this._currentProjectId !== projectId) {
-            throw new Error(`Trying to unload a project that is not the current project: ${projectId}`);
-        }
-
         await this.service.unloadProject(projectId);
         log.info('Unloaded project', projectId)
 
-        // Clear current project and callback
-        this._currentProjectId = null;
-        this._localStorageUpdateCallback = null;
+        // Remove update callback for this project
+        this._projectUpdateCallbacks.delete(projectId);
     }
     async deleteProject(projectId: string, projectStorageConfig: ProjectStorageConfig): Promise<void> {
         return this.service.deleteProject(projectId, projectStorageConfig);
@@ -751,7 +742,7 @@ export class StorageServiceActual implements StorageServiceActualInterface {
         const fileItemData = await repoManager.fileStore.addFile(blob, uniquePath, parentId, metadata);
 
         // Mark created in this session to skip restore logic during commit processing
-        const key = `${fileItemData.id}#${fileItemData.contentHash}`;
+        const key = `${fileItemData.id}#${fileItemData.content.hash}`;
         this._createdFilesThisSession.add(key);
 
         return fileItemData;

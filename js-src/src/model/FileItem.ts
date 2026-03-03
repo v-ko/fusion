@@ -1,16 +1,22 @@
 import { Entity, EntityData, entityType, getEntityId } from "./Entity";
 
+// Content object – holds the content hash (analogous to NoteContent)
+export interface FileItemContent {
+    hash: string;  // Updated on content edit, enables id persistence through edits
+}
+
+// Base metadata – standardized to match Note pattern.
+// Subclasses extend with type-specific fields (e.g. ImageItemMetadata adds width/height).
 export interface FileItemMetadata {
-    // Base metadata – subclasses extend this with type-specific fields
-    // (e.g. ImageItemMetadata adds width/height)
+    size: number;       // Size of the file in bytes
+    mimeType: string;   // MIME type of the file (e.g. 'image/jpeg', 'application/pdf')
+    [key: string]: unknown; // Allow subtype-specific fields (e.g. width, height for images)
 }
 
 export interface FileItemData extends EntityData {
-    path: string;  // For project organization and FS storage (e.g. path relative to the project root)
-    contentHash: string;  // Updated on content edit, enables id persistence through edits
-    mimeType: string;  // MIME type of the file (e.g. 'image/jpeg', 'application/pdf')
-    size: number;  // Size of the file in bytes
-    metadata: FileItemMetadata;  // Extensible metadata object (subclasses add their own fields)
+    path: string;       // For project organization and FS storage (e.g. path relative to the project root)
+    content: FileItemContent;
+    metadata: FileItemMetadata;
 }
 
 @entityType('FileItem')
@@ -26,16 +32,20 @@ export class FileItem extends Entity<FileItemData> {
         return this._data.path;
     }
 
+    get content(): FileItemContent {
+        return this._data.content;
+    }
+
     get contentHash(): string {
-        return this._data.contentHash;
+        return this._data.content.hash;
     }
 
     get mimeType(): string {
-        return this._data.mimeType;
+        return this._data.metadata.mimeType;
     }
 
     get size(): number {
-        return this._data.size;
+        return this._data.metadata.size;
     }
 
     get metadata(): FileItemMetadata {
