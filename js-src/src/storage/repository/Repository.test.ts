@@ -158,6 +158,32 @@ describe("Repository base functionality", () => {
         expect(rootHash).toEqual(commit.snapshotHash)
     });
 
+    test("Commit with skipConflictingChanges applies a stale update on the current base", async () => {
+        const sourceStore = new InMemoryStore();
+        const page = new DummyPage({ id: 'page1', parent_id: '', name: 'Page 1' });
+        const baseDelta = Delta.fromChanges([sourceStore.insertOne(page)]);
+        await repo.commit(baseDelta, 'Initial commit');
+
+        const remotePage = page.copy() as DummyPage;
+        remotePage.name = 'Remote Page';
+        const remoteDelta = Delta.fromChanges([Change.update(page, remotePage)]);
+        await repo.commit(remoteDelta, 'Remote update');
+
+        const staleLocalPage = page.copy() as DummyPage;
+        staleLocalPage.name = 'Local Page';
+        const staleDelta = Delta.fromChanges([Change.update(page, staleLocalPage)]);
+
+        const commit = await repo.commit(staleDelta, 'Stale local update', {
+            skipConflictingChanges: true,
+        });
+        const appliedDelta = commit.delta;
+
+        expect(appliedDelta.isEmpty()).toBe(false);
+        expect(commit.deltaData).toEqual(appliedDelta.data);
+        expect((appliedDelta.change('page1')?.reverseComponent as { name?: string } | undefined)?.name).toBe('Remote Page');
+        expect((repo.headStore.findOne({ id: 'page1' }) as DummyPage | undefined)?.name).toBe('Local Page');
+    });
+
     // Add sync with conflict
     // Automerge
 });

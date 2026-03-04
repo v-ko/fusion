@@ -13,6 +13,13 @@ export interface SerializedStoreData {
     entities: SerializedEntityData[];
 }
 
+export class IrrationalStorageOperation extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'IrrationalStorageOperation';
+    }
+}
+
 export abstract class Store {
     abstract insertOne(entity: Entity<EntityData>): Change;
 
@@ -34,24 +41,25 @@ export abstract class Store {
     update(entities: Entity<EntityData>[]): Change[] {
         return entities.map(entity => this.updateOne(entity))
     }
-    applyChange(change: Change): void {
+    applyChange(change: Change): Change {
         if (change.isCreate()) {
             let entityState = loadFromDict(change.forwardComponent as SerializedEntityData);
-            this.insertOne(entityState);
+            return this.insertOne(entityState);
         } else if (change.isUpdate()) {
             let entity = this.findOne({ id: change.entityId });
             if (entity === undefined) {
-                throw new Error(`Last state retreival error for ${change.data} (type update)`);
+                throw new IrrationalStorageOperation(`Last state retreival error for ${change.data} (type update)`);
             }
             entity = transformedEntity(entity, change);
-            this.updateOne(entity);
+            return this.updateOne(entity);
         } else if (change.isDelete()) {
             let entity = this.findOne({ id: change.entityId });
             if (entity === undefined) {
-                throw new Error(`Last state retreival error for ${change.data} (type delete)`);
+                throw new IrrationalStorageOperation(`Last state retreival error for ${change.data} (type delete)`);
             }
-            this.removeOne(entity);
+            return this.removeOne(entity);
         }
+        return change;
     }
     data(): SerializedStoreData {
         const entities = Array.from(this.find({}));
@@ -64,9 +72,18 @@ export abstract class Store {
         }
     }
 
-    applyDelta(delta: Delta) {
+    applyDelta(delta: Delta, skipIrrationalOperations: boolean = false): Delta {
+        const appliedDelta = new Delta({});
         for (const change of delta.changes()) {
-            this.applyChange(change);
+            try {
+                const appliedChange = this.applyChange(change);
+                appliedDelta.addChangeFromData(appliedChange.data);
+            } catch (error) {
+                if (!skipIrrationalOperations || !(error instanceof IrrationalStorageOperation)) {
+                    throw error;
+                }
+            }
         }
+        return appliedDelta;
     }
 }

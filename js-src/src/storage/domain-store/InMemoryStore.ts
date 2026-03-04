@@ -1,4 +1,4 @@
-import { Store, SearchFilter } from "./BaseStore"
+import { IrrationalStorageOperation, Store, SearchFilter } from "./BaseStore"
 import { Entity, EntityData, getEntityClassByName } from "../../model/Entity"
 import { Change } from "../../model/Change"
 import { getLogger } from "../../logging"
@@ -424,7 +424,7 @@ export class InMemoryStore extends Store {
             const oldEntity = idIndex?.get(entity.id) as Entity<EntityData> | undefined;
 
             if (!oldEntity) {
-                throw new Error(`Entity with ID ${entity.id} does not exist for update.`);
+                throw new IrrationalStorageOperation(`Entity with ID ${entity.id} does not exist for update.`);
             }
 
             // Create the change object to get what fields actually changed
@@ -451,7 +451,7 @@ export class InMemoryStore extends Store {
         const { indexes } = this.indexManager.indexStorage;
         const idIndex = indexes.get("id");
         if (idIndex && idIndex.has(entity.id)) {
-            throw new Error(`Entity with ID ${entity.id} already exists.`);
+            throw new IrrationalStorageOperation(`Entity with ID ${entity.id} already exists.`);
         }
 
         return this.upsertToCache(entity, true);
@@ -468,7 +468,7 @@ export class InMemoryStore extends Store {
         const oldEntity = idIndex?.get(entity.id) as Entity<EntityData> | undefined;
 
         if (!oldEntity) {
-            throw new Error(`Entity with ID ${entity.id} does not exist.`);
+            throw new IrrationalStorageOperation(`Entity with ID ${entity.id} does not exist.`);
         }
 
         this.removeFromCache(oldEntity);

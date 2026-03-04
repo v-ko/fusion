@@ -47,6 +47,7 @@ export class IndexedDBStorageAdapter implements StorageAdapter {
             throw new Error('IndexedDB already initialized');
         }
         let dbName = repoStoreName(this._projectId);
+        log.info(`[initialize] Opening IndexedDB "${dbName}" for project "${this._projectId}"`);
 
         let DBConstructor = openDB;
         if (DEBUG_DB) {
@@ -115,6 +116,10 @@ export class IndexedDBStorageAdapter implements StorageAdapter {
 
             // Await transaction completion to catch any errors post data fetching
             await tx.done;
+
+            log.info(`[getCommitGraph] DB "${this._projectId}": ` +
+                `branches=${branches.length} [${branches.map(b => b.name).join(', ')}], ` +
+                `commits=${commits.length}`);
 
             return CommitGraph.fromData({
                 branches: branches,

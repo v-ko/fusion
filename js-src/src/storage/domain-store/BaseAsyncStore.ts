@@ -14,6 +14,6 @@ export abstract class BaseAsyncStore {
         return { entities: entities.map(entity => dumpToDict(entity)) };
     }
     abstract applyChange(change: Change): Promise<void>;
-    abstract applyDelta(delta: Delta): Promise<Change[]>;
+    abstract applyDelta(delta: Delta): Promise<Delta>;
 
 }

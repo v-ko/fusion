@@ -1,12 +1,78 @@
 import * as Comlink from 'comlink';
 import { getLogger } from '../../logging';
 import { StorageServiceActualInterface } from './StorageService';
+import { createId } from '../../util/base';
 
 const log = getLogger('service-worker-utils');
 
 declare const self: ServiceWorkerGlobalScope;
 
+type LoggedStorageServiceBridge = {
+    [K in keyof StorageServiceActualInterface]: StorageServiceActualInterface[K];
+};
+
+console.log('test')
+
+function createLoggedStorageServiceBridge(storageService: StorageServiceActualInterface): LoggedStorageServiceBridge {
+    return {
+        loadProject: async (projectId, repoManagerConfig) => {
+            return logWorkerOperation('loadProject', `projectId=${projectId}`, () => storageService.loadProject(projectId, repoManagerConfig));
+        },
+        createProject: async (projectId, projectStorageConfig) => {
+            return logWorkerOperation('createProject', `projectId=${projectId}`, () => storageService.createProject(projectId, projectStorageConfig));
+        },
+        unloadProject: async (projectId) => {
+            return logWorkerOperation('unloadProject', `projectId=${projectId}`, () => storageService.unloadProject(projectId));
+        },
+        deleteProject: async (projectId, projectStorageConfig) => {
+            return logWorkerOperation('deleteProject', `projectId=${projectId}`, () => storageService.deleteProject(projectId, projectStorageConfig));
+        },
+        getCommitGraph: async (projectId) => {
+            return logWorkerOperation('getCommitGraph', `projectId=${projectId}`, () => storageService.getCommitGraph(projectId));
+        },
+        getCommits: async (projectId, commitIds) => {
+            return logWorkerOperation('getCommits', `projectId=${projectId} commitCount=${commitIds.length}`, () => storageService.getCommits(projectId, commitIds));
+        },
+        _storageOperationRequest: async (request) => {
+            const details = 'projectId' in request
+                ? `type=${request.type} projectId=${request.projectId}`
+                : `type=${request.type}`;
+            return logWorkerOperation('_storageOperationRequest', details, () => storageService._storageOperationRequest(request));
+        },
+        addFile: async (projectId, blob, path, parentId, metadata) => {
+            return logWorkerOperation('addFile', `projectId=${projectId} path=${path} parentId=${parentId} size=${blob.size}`, () => storageService.addFile(projectId, blob, path, parentId, metadata));
+        },
+        getFile: async (projectId, fileId, fileHash) => {
+            return logWorkerOperation('getFile', `projectId=${projectId} fileId=${fileId} hash=${fileHash}`, () => storageService.getFile(projectId, fileId, fileHash));
+        },
+        removeFile: async (projectId, fileId, fileHash) => {
+            return logWorkerOperation('removeFile', `projectId=${projectId} fileId=${fileId} hash=${fileHash}`, () => storageService.removeFile(projectId, fileId, fileHash));
+        },
+        test: () => {
+            return storageService.test();
+        },
+        disconnect: () => {
+            storageService.disconnect();
+        }
+    };
+}
+
+async function logWorkerOperation<T>(operationName: string, detail: string, work: () => Promise<T>): Promise<T> {
+    const operationId = createId(6);
+    const startedAt = Date.now();
+    log.info(`[op:${operationId}] Received ${operationName}${detail ? ` (${detail})` : ''}`);
+    try {
+        const result = await work();
+        log.info(`[op:${operationId}] Completed ${operationName} in ${Date.now() - startedAt}ms`);
+        return result;
+    } catch (error) {
+        log.error(`[op:${operationId}] Failed ${operationName} after ${Date.now() - startedAt}ms`, error);
+        throw error;
+    }
+}
+
 export function setupServiceWorker(storageService: StorageServiceActualInterface) {
+    const loggedStorageService = createLoggedStorageServiceBridge(storageService);
     // Configure the service worker to update immediately and claim clients upon activation
     self.addEventListener('install', event => {
         log.info('Service worker installed');
@@ -36,7 +102,7 @@ export function setupServiceWorker(storageService: StorageServiceActualInterface
             const port = event.ports[0];
             if (port) {
                 log.info('Service worker: Setting up Comlink on MessageChannel port');
-                Comlink.expose(storageService, port);
+                Comlink.expose(loggedStorageService, port);
                 log.info('Service worker: Comlink exposed on port');
             } else {
                 log.error('Service worker: No port received in CONNECT_STORAGE message');

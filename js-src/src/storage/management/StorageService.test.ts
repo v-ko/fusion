@@ -72,11 +72,118 @@ describe("StorageService base functionality", () => {
     });
 
     afterEach(async () => {
+        jest.useRealTimers();
         jest.restoreAllMocks();
         clearInMemoryAdapterInstances();
         storageService.disconnect();
     });
 
+    test("setStateChangeHandler emits initial and updated snapshots", () => {
+        const observedStates: StorageServiceModule.StorageServiceRuntimeState[] = [];
+        const observedService = new StorageServiceModule.StorageService();
+
+        observedService.setStateChangeHandler((nextState) => {
+            observedStates.push(nextState);
+        });
+        observedService.setupInMainThread();
+
+        expect(observedStates.length).toBeGreaterThanOrEqual(2);
+        expect(observedStates[0].connectionPhase).toBe('uninitialized');
+        expect(observedStates[observedStates.length - 1].connectionPhase).toBe('main-thread-ready');
+
+        observedService.disconnect();
+    });
+
+    test("timed out remote call marks the wrapper disconnected", async () => {
+        jest.useFakeTimers();
+
+        const pendingRemote = {
+            createProject: jest.fn(() => new Promise<void>(() => { })),
+            disconnect: jest.fn(),
+        };
+
+        (storageService as any)._isWrapper = true;
+        (storageService as any)._service = pendingRemote;
+        (storageService as any).setState({
+            backend: 'service-worker',
+            connectionPhase: 'ready',
+            connected: true,
+            usingServiceWorker: true,
+        });
+
+        const createPromise = storageService.createProject(projectId, projectStorageConfig);
+        const createRejection = expect(createPromise).rejects.toThrow('createProject timed out after 10000ms');
+        await jest.advanceTimersByTimeAsync(10000);
+
+        await createRejection;
+        expect(storageService.state.connectionPhase).toBe('disconnected');
+        expect(storageService.state.lastError?.code).toBe('storage-call-timeout');
+        expect(storageService.state.lastError?.operation).toBe('createProject');
+    });
+
+    test("disconnected remote call reconnects once before executing", async () => {
+        const remoteCreate = jest.fn(async () => { });
+        const reconnectSpy = jest.spyOn(storageService as any, 'reconnectToWorker').mockImplementation(async () => {
+            (storageService as any)._service = {
+                createProject: remoteCreate,
+                disconnect: jest.fn(),
+            };
+            (storageService as any).setState({
+                connectionPhase: 'ready',
+                connected: true,
+            });
+        });
+
+        (storageService as any)._isWrapper = true;
+        (storageService as any)._service = null;
+        (storageService as any).setState({
+            backend: 'service-worker',
+            connectionPhase: 'disconnected',
+            connected: false,
+            usingServiceWorker: true,
+        });
+
+        await storageService.createProject(projectId, projectStorageConfig);
+
+        expect(reconnectSpy).toHaveBeenCalledTimes(1);
+        expect(remoteCreate).toHaveBeenCalledTimes(1);
+        expect(storageService.state.connectionPhase).toBe('ready');
+    });
+
+    test("loadProject updates project phase on success and resets it on failure", async () => {
+        (storageService as any)._service = {
+            loadProject: jest.fn(async () => { }),
+            disconnect: jest.fn(),
+        };
+
+        await storageService.loadProject(projectId, projectStorageConfig, () => { });
+        expect(storageService.state.projectPhase).toBe('attached');
+        expect(storageService.state.activeProjectId).toBe(projectId);
+
+        (storageService as any)._service = {
+            loadProject: jest.fn(async () => {
+                throw new Error('load failed');
+            }),
+            disconnect: jest.fn(),
+        };
+
+        await expect(storageService.loadProject('missing-project', projectStorageConfig, () => { })).rejects.toThrow('load failed');
+        expect(storageService.state.projectPhase).toBe('detached');
+        expect(storageService.state.activeProjectId).toBeNull();
+    });
+
+    test("commit returns a rejected promise when the storage request fails", async () => {
+        const commitFailure = new Error('commit failed');
+        (storageService as any)._service = {
+            _storageOperationRequest: jest.fn(async () => {
+                throw commitFailure;
+            }),
+            disconnect: jest.fn(),
+        };
+
+        const delta = Delta.fromChanges([Change.create(new DummyPage({ id: createId(), parent_id: '', name: "Test Page" }))]);
+        await expect(storageService.commit(projectId, delta.data, "Test commit")).rejects.toThrow('commit failed');
+    });
 
     test("sanity: waitForNextCall resolves for a plain mock invocation", async () => {
         const fn = jest.fn<void, [any]>();
@@ -137,11 +244,17 @@ describe("StorageService base functionality", () => {
         const note = new DummyNote({ id: createId(), parent_id: page.id, testProp: "Test Note" });
         const delta = Delta.fromChanges([Change.create(page), Change.create(note)]);
 
-        // commit is fire-and-forget (returns void)
-        storageService.commit(projectId, delta.data, "Test commit");
+        const commitPromise = storageService.commit(projectId, delta.data, "Test commit");
 
         // Wait for the *next* callback invocation after commit
         const [update] = await waitForNextCall(onUpdate, callsBefore);
+        await expect(commitPromise).resolves.toMatchObject({
+            type: 'commit',
+            commit: expect.objectContaining({
+                message: 'Test commit',
+                deltaData: delta.data,
+            }),
+        });
 
         // Assertions based on StorageServiceActual._exectuteCommitRequest()
         expect(update).toBeDefined();

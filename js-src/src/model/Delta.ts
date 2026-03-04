@@ -1,7 +1,32 @@
 import { Change, ChangeData, ChangeType } from "./Change";
+import { entityKeysAreEqual } from "./Entity";
 import { getLogger } from "../logging";
 
 let log = getLogger('Delta')
+
+function changeReducesToNone(change: Change): boolean {
+    if (!change.isUpdate()) {
+        return false;
+    }
+
+    const reverseComponent: Record<string, any> = { ...change.reverseComponent };
+    const forwardComponent: Record<string, any> = { ...change.forwardComponent };
+
+    for (const key of Object.keys(reverseComponent)) {
+        if (!(key in forwardComponent)) {
+            continue;
+        }
+        if (entityKeysAreEqual(reverseComponent[key], forwardComponent[key])) {
+            delete reverseComponent[key];
+            delete forwardComponent[key];
+        }
+    }
+
+    change.reverseComponent = reverseComponent;
+    change.forwardComponent = forwardComponent;
+
+    return Object.keys(reverseComponent).length === 0 && Object.keys(forwardComponent).length === 0;
+}
 
 export type DeltaData = {
     [key: string]: ChangeData;
@@ -143,6 +168,9 @@ export class Delta {
             if (nextReverse) {
                 firstChange.reverseComponent = { ...nextReverse, ...firstReverse };
             }
+            if (changeReducesToNone(firstChange)) {
+                this.removeChange(change.entityId);
+            }
 
         /**
          * 2) CREATE > UPDATE
@@ -173,6 +201,10 @@ export class Delta {
                 oldData,    // reverse => revert to "deleted" or old state
                 newData     // forward => adopt the new data
             ];
+            const mergedChange = this.change(change.entityId)!;
+            if (changeReducesToNone(mergedChange)) {
+                this.removeChange(change.entityId);
+            }
 
         /**
          * 4) CREATE > DELETE
@@ -257,4 +289,3 @@ function changeTypeFromData(
         return ChangeType.EMPTY;
     }
 }
-

@@ -51,6 +51,10 @@ export interface RepoUpdateData {
     upsertedCommits: CommitData[];
 }
 
+export interface CommitOptions {
+    skipConflictingChanges?: boolean;
+}
+
 export async function getStorageAdapter(config: StorageAdapterConfig): Promise<StorageAdapter> {
     if (config.name === 'InMemory') {
         return new InMemoryStorageAdapter();
@@ -135,9 +139,18 @@ export class Repository {
 
         //
         const commitGraph = await repo._storageAdapter.getCommitGraph();
-        const branch = commitGraph.branch(repo._currentBranch);
+        const allBranches = commitGraph.branches();
+        const allCommits = commitGraph.commits();
+        log.info(`[Repository.open] Loaded commit graph for branch "${repo._currentBranch}". ` +
+            `Branches (${allBranches.length}): [${allBranches.map(b => b.name).join(', ')}], ` +
+            `Commits: ${allCommits.length}`);
+
+        let branch = commitGraph.branch(repo._currentBranch);
         if (branch === undefined) {
-            throw new Error(`Branch ${repo._currentBranch} not found in the commit graph. Branches: ${commitGraph.branches().map(b => b.name).join(', ')}`);
+            throw new Error(`Branch "${repo._currentBranch}" not found in the commit graph. ` +
+                `Branches (${allBranches.length}): [${allBranches.map(b => b.name).join(', ')}], ` +
+                `Commits: ${allCommits.length}, ` +
+                `Storage adapter: ${config.name}, projectId: ${config.args.projectId}`);
         }
 
         if (!repo._isCaching) {
@@ -209,7 +222,7 @@ export class Repository {
         return this._storageAdapter.getCommits(ids);
     }
 
-    async commit(delta: Delta, message: string): Promise<Commit> {
+    async commit(delta: Delta, message: string, options: CommitOptions = {}): Promise<Commit> {
         if (!this._currentBranch) {
             throw new Error("Current branch is not set");
         }
@@ -219,13 +232,13 @@ export class Repository {
 
         log.info('Committing', delta, message)
         // Apply to the head store
-        this.headStore.applyDelta(delta)
+        const appliedDelta = this.headStore.applyDelta(delta, options.skipConflictingChanges === true);
 
         // Get snapshotHash
         try {
-            await updateHashTree(this.hashTree, this.headStore, delta)
+            await updateHashTree(this.hashTree, this.headStore, appliedDelta)
         } catch (e) {
-            this.headStore.applyDelta(delta.reversed()); // Restore the store state, commit is unsuccessful
+            this.headStore.applyDelta(appliedDelta.reversed()); // Restore the store state, commit is unsuccessful
             if (e instanceof HangingSubtreesError) {
                 throw Error('Error updating hashtree. You\'re probably trying to commit objects to the store who\'s parents are not present in it. Error: ' + e)
             }
@@ -246,7 +259,7 @@ export class Repository {
             id: createId(),
             parentId: parentId,
             snapshotHash: snapshotHash,
-            deltaData: delta.data,
+            deltaData: appliedDelta.data,
             message: message,
             timestamp: Date.now()
         })
