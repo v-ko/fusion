@@ -173,7 +173,6 @@ export interface StorageServiceRuntimeState {
     connected: boolean;
     workerLifecycle: ServiceWorkerLifecycleState;
     lastReadyAt: number | null;
-    lastHeartbeatAt: number | null;
     lastError: StorageServiceErrorState | null;
 }
 
@@ -195,7 +194,6 @@ export function createInitialStorageServiceRuntimeState(): StorageServiceRuntime
         connected: false,
         workerLifecycle: 'none',
         lastReadyAt: null,
-        lastHeartbeatAt: null,
         lastError: null,
     };
 }
