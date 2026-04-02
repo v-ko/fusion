@@ -1,19 +1,29 @@
-import { getStorageAdapter, Repository, RepositoryIntegrityError, StorageAdapterConfig, verifyRepositoryIntegrity } from "../repository/Repository";
+import { getVcsAdapter, Repository, RepositoryIntegrityError, MissingBranchError, VcsAdapterConfig, verifyRepositoryIntegrity } from "../repository/Repository";
 import { FileStoreAdapter } from "../file-store/FileStoreAdapter";
 import { InMemoryFileStoreAdapter } from "../file-store/InMemoryFileStoreAdapter";
 import { CacheFileStoreAdapter } from "../file-store/CacheFileStoreAdapter";
 import { RestApiFileStoreAdapter } from "../file-store/RestApiFileStoreAdapter";
 import { getLogger } from "../../logging";
-import { IndexConfig } from "../domain-store/InMemoryStore";
 import { RestApiAuthConfig } from "../rest-api/Auth";
+import { ProjectData } from "./StorageService";
+import type { StorageServiceActual } from "./StorageService";
+import type { DomainStoreAdapter, DomainStoreConfig } from "../domain-store-adapter/DomainStoreAdapter";
+import { RestApiDomainStoreAdapter } from "../domain-store-adapter/RestApiDomainStoreAdapter";
+import { loadFromDict } from "../../model/Entity";
+import { Delta, DeltaData } from "../../model/Delta";
+import { Change } from "../../model/Change";
 
 let log = getLogger('ProjectStorageManager');
 
+export type { DomainStoreAdapter } from "../domain-store-adapter/DomainStoreAdapter";
+export type { DomainStoreConfig } from "../domain-store-adapter/DomainStoreAdapter";
+
 export interface ProjectStorageConfig {
+    projectId: string;
     deviceBranchName: string;
-    storeIndexConfigs: readonly IndexConfig[];
-    onDeviceStorageAdapter: StorageAdapterConfig;  // IndexedDB, RestApi, Cloud (for thin clients), InMemory for testing
+    onDeviceVcsAdapter: VcsAdapterConfig;  // IndexedDB, RestApi, Cloud (for thin clients), InMemory for testing
     onDeviceFileStore: FileStoreConfig;  // CacheAPI, RestApi, Cloud (for thin clients), InMemory for testing
+    domainStore?: DomainStoreConfig;  // External domain store config (e.g. desktop backend filesystem bridge)
 }
 
 export interface FileStoreConfig {
@@ -65,6 +75,18 @@ async function initFileStore(config: FileStoreConfig): Promise<FileStoreAdapter>
 }
 
 
+function initDomainStoreAdapter(config: DomainStoreConfig): DomainStoreAdapter {
+    switch (config.name) {
+        case "RestApi": {
+            const { projectId, baseUrl, auth } = config.args;
+            return new RestApiDomainStoreAdapter(projectId, baseUrl, auth);
+        }
+        default:
+            throw new Error(`Unknown domain store adapter type: ${config.name}`);
+    }
+}
+
+
 export class ProjectStorageManager {
     /**
      * A class to manage the storage adapters and sync graph operations for a
@@ -89,13 +111,22 @@ export class ProjectStorageManager {
     private _config: ProjectStorageConfig;
     _onDeviceRepo: Repository | null = null;
     private _localFileStore: FileStoreAdapter | null = null;
+    private _parentStorageService: StorageServiceActual | null = null;
+    private _domainStoreAdapter: DomainStoreAdapter | null = null;
+    private _bridgeActive: boolean = false;
+    private _polling: boolean = false;
 
-    constructor(config: ProjectStorageConfig) {
+    constructor(config: ProjectStorageConfig, parentStorageService: StorageServiceActual | null = null) {
         this._config = config
+        this._parentStorageService = parentStorageService;
 
         // Assert that the adapter local branches and the device branch are the same
-        if (this._config.deviceBranchName !== this._config.onDeviceStorageAdapter.args.localBranchName) {
+        if (this._config.deviceBranchName !== this._config.onDeviceVcsAdapter.args.localBranchName) {
             throw new Error("Device branch name and on-device repo local branch name must match")
+        }
+
+        if (this._config.domainStore) {
+            this._domainStoreAdapter = initDomainStoreAdapter(this._config.domainStore);
         }
     }
     get onDeviceRepo() {
@@ -116,37 +147,164 @@ export class ProjectStorageManager {
     get currentBranchName() {
         return this.config.deviceBranchName
     }
-    async loadProject() {
-        try{
-            this._onDeviceRepo = await Repository.open(this.config.onDeviceStorageAdapter, true, this.config.storeIndexConfigs)
+    get parentStorageService(): StorageServiceActual | null {
+        return this._parentStorageService;
+    }
+
+    async getProjectProperties(): Promise<ProjectData | null> {
+        return await this.onDeviceRepo.getProjectProperties() as ProjectData | null;
+    }
+
+    async setProjectProperties(projectProperties: ProjectData): Promise<void> {
+        await this.onDeviceRepo.setProjectProperties(projectProperties);
+    }
+
+    // ---- Project lifecycle ----
+
+    async loadProject(projectUri?: string) {
+        const ds = this._domainStoreAdapter;
+
+        // 1. Setup bridge (PFM reads .canvas files into memory)
+        if (ds) {
+            if (!projectUri) {
+                throw new Error('projectUri is required when a domain store is configured');
+            }
+            await ds.setupBridge(projectUri);
+            this._bridgeActive = true;
+        }
+
+        // 2. Open VCS (with domain store entities if available)
+        let headStoreData;
+        if (ds) {
+            const entityDicts = await ds.find();
+            headStoreData = entityDicts.map(d => loadFromDict(d));
+            log.info(`Fetched ${headStoreData.length} entities from domain store`);
+        }
+
+        try {
+            this._onDeviceRepo = await Repository.open(this.config.onDeviceVcsAdapter, true, headStoreData)
         } catch (e) {
-            if (e instanceof RepositoryIntegrityError) {
-                let storageAdapter = await getStorageAdapter(this.config.onDeviceStorageAdapter);
-                await verifyRepositoryIntegrity(storageAdapter, this.config.deviceBranchName);
+            if (e instanceof MissingBranchError && headStoreData) {
+                log.info(`VCS store empty, creating repository from ${headStoreData.length} domain store entities`);
+                this._onDeviceRepo = await Repository.create(this.config.onDeviceVcsAdapter, true);
+                const initialDelta = Delta.fromChanges(headStoreData.map(e => Change.create(e)));
+                await this._onDeviceRepo.commit(initialDelta, 'Initial commit from domain store');
             } else {
+                if (ds && this._bridgeActive) {
+                    await ds.discardBridge().catch((unloadError: unknown) => {
+                        log.error('Failed to discard bridge after load failure', unloadError);
+                    });
+                    this._bridgeActive = false;
+                }
+                if (e instanceof RepositoryIntegrityError) {
+                    let storageAdapter = await getVcsAdapter(this.config.onDeviceVcsAdapter);
+                    log.error('Attempting repository integrity verification after load failure', e);
+                    await verifyRepositoryIntegrity(storageAdapter, this.config.deviceBranchName);
+                }
                 throw e;
             }
         }
+
+        // 3. If domain store exists: verify hash integrity
+        if (ds) {
+            const commitGraph = await this._onDeviceRepo.getCommitGraph();
+            const headCommit = commitGraph.headCommit(this.config.deviceBranchName);
+            if (headCommit) {
+                const diskHash = this._onDeviceRepo.hashTree.rootHash();
+                const vcsHash = headCommit.snapshotHash;
+                if (diskHash !== vcsHash) {
+                    throw new Error(`Integrity check failed: filesystem hash (${diskHash}) does not match VCS head hash (${vcsHash}). integrityPatch not yet implemented.`);
+                }
+            }
+
+            // 4. Check for immediate pending FS changes
+            const pendingDelta = await ds.getPendingDelta(0);
+            if (pendingDelta && Object.keys(pendingDelta).length > 0) {
+                throw new Error('NotImplementedError: unexpected pending changes on project load');
+            }
+        }
+
         this._localFileStore = await initFileStore(this.config.onDeviceFileStore)
-    }
-    async createProject(): Promise<void> {
-        this._onDeviceRepo = await Repository.create(this.config.onDeviceStorageAdapter, true, this.config.storeIndexConfigs);
-        this._localFileStore = await initFileStore(this.config.onDeviceFileStore);
+
+        // Start pulling external changes from domain store
+        if (ds) {
+            this._polling = true;
+            void this._pollLoop();
+        }
     }
 
-    shutdown() {
+    async createProject(projectProperties?: ProjectData): Promise<void> {
+        if (this._domainStoreAdapter) {
+            throw new Error("Desktop project creation is not implemented yet. Folder selection and project initialization still need to be added.");
+        }
+        this._onDeviceRepo = await Repository.create(this.config.onDeviceVcsAdapter, true);
+        this._localFileStore = await initFileStore(this.config.onDeviceFileStore);
+        if (projectProperties) {
+            await this.setProjectProperties(projectProperties);
+        }
+    }
+
+    async unloadProject(): Promise<void> {
         log.info('Closing project storage manager')
+        this._polling = false;
         if (this._onDeviceRepo) {
             this._onDeviceRepo.close()
+        }
+        this._onDeviceRepo = null;
+        this._localFileStore = null;
+        if (this._domainStoreAdapter && this._bridgeActive) {
+            await this._domainStoreAdapter.discardBridge();
+            this._bridgeActive = false;
+        }
+    }
+
+    async shutdown() {
+        await this.unloadProject();
+    }
+
+    // ---- Domain store sync ----
+
+    /** Push a user-initiated delta to the domain store (filesystem). */
+    async syncDeltaToDomainStore(deltaData: DeltaData, snapshotHash?: string): Promise<void> {
+        if (!this._domainStoreAdapter) return;
+        await this._domainStoreAdapter.applyDelta(deltaData, snapshotHash);
+    }
+
+    /** Pull loop: fetch pending FS changes and commit them to VCS. */
+    private static readonly POLL_TIMEOUT_MS = 30_000;
+    private async _pollLoop(): Promise<void> {
+        const ds = this._domainStoreAdapter!;
+        while (this._polling) {
+            try {
+                const delta = await ds.getPendingDelta(ProjectStorageManager.POLL_TIMEOUT_MS);
+                if (!this._polling) break;
+
+                if (delta && Object.keys(delta).length > 0) {
+                    if (!this._parentStorageService || !this._onDeviceRepo) break;
+                    await this._parentStorageService.commit(
+                        this.config.projectId,
+                        delta,
+                        'external filesystem change',
+                    );
+                }
+            } catch (e) {
+                if (!this._polling) break;
+                log.error('Change polling error', e);
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
         }
     }
 
     async eraseLocalStorage() {
-        // Erase the local storage
         if (this._onDeviceRepo) {
-            await this._onDeviceRepo.eraseStorage()
+            await this._onDeviceRepo.eraseStorage();
         } else {
-            log.warning('Local storage not initialized. Nothing to erase.')
+            log.warning('VCS storage not initialized. Nothing to erase.');
+        }
+        if (this._localFileStore) {
+            await this._localFileStore.eraseStorage();
+        } else {
+            log.warning('File store not initialized. Nothing to erase.');
         }
     }
 }

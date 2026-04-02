@@ -92,6 +92,12 @@ export class InMemoryFileStoreAdapter implements FileStoreAdapter {
         log.info(`Cleaned ${trashedCount} items from in-memory trash.`);
     }
 
+    async eraseStorage(): Promise<void> {
+        this._files.clear();
+        this._trash.clear();
+        log.info('Erased InMemoryFileStoreAdapter.');
+    }
+
     async close(): Promise<void> {
         this._files.clear();
         this._trash.clear();

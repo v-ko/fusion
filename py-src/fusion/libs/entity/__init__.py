@@ -3,9 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field, fields
 from datetime import datetime
-from typing import Type, TypeVar, Union
-
-from pydantic import BaseModel
+from typing import Type, TypeVar
 
 import fusion
 from fusion.logging import LOGGING_LEVEL, LoggingLevels, get_logger
@@ -34,13 +32,13 @@ def reset_entity_id_counter():
 
 
 def __hash__(self):
-    return hash(self.gid())
+    return hash(self.id)
 
 
 def __eq__(self, other: Entity) -> bool:
     if not other:
         return False
-    return self.gid() == other.gid()
+    return self.id == other.id
 
 
 T = TypeVar("T")
@@ -112,12 +110,6 @@ def dump_as_json(entity: Entity, ensure_ascii=False, **dump_kwargs):
     return json_str
 
 
-def load_from_json(json_str: str):
-    raise Exception("not tested")
-    entity_dict = json.loads(json_str)
-    load_from_dict(entity_dict)
-
-
 def load_from_dict(entity_dict: dict):
     type_name = entity_dict.pop("type_name")
     cls = get_entity_class_by_name(type_name)
@@ -128,19 +120,20 @@ def load_from_dict(entity_dict: dict):
             "library. Have you added the @entity_type decorator?"
         )
 
+    init_kwargs = {}
     if "id" in entity_dict:
-        id = entity_dict.pop("id")
-        if isinstance(id, list):  # Mostly when deserializing
-            id = tuple(id)
-        instance = cls(id=id)
-    else:
-        instance = cls()
+        init_kwargs["id"] = entity_dict.pop("id")
+
+    if "parent_id" in entity_dict:
+        init_kwargs["parent_id"] = entity_dict.pop("parent_id")
+
+    instance = cls(**init_kwargs)
 
     leftovers = instance.replace_silent(**entity_dict)
     if leftovers:
         log.error(
             f"Leftovers while loading entity "
-            f'(id={entity_dict.get("id", None)}): {leftovers}'
+            f'(id={init_kwargs.get("id", None)}): {leftovers}'
         )
     return instance
 
@@ -171,7 +164,8 @@ class Entity:
     use the with_id method as a shorthand for that.
     """
 
-    id: str | tuple = field(default_factory=get_entity_id)
+    id: str = field(default_factory=get_entity_id)
+    parent_id: str = field(default="")
     immutability_error_message: str = field(default="", init=False, repr=False)
 
     def __setattr__(self, key, value):
@@ -192,7 +186,7 @@ class Entity:
 
         # Since ids are used for hashing - it's wise to make them immutable
         if key == "id":
-            assert isinstance(value, (str, tuple))  # Allowed types for id
+            assert isinstance(value, str)  # id must be a string
 
             if hasattr(self, "id"):
                 raise Exception
@@ -243,14 +237,6 @@ class Entity:
         self_dict["id"] = new_id
         return type(self)(**self_dict)
 
-    def gid(self) -> Union[str, tuple]:
-        """(Will be deprecated in future versions)
-        Returns the global id of the entity. This function can be
-        overwritten to return e.g. a tuple of values like
-        (self.page_id, self.id).
-        """
-        return self.id
-
     def asdict(self) -> dict:
         """Return the entity fields as a dict"""
         # The dataclasses.asdict recurses and that's not what we want
@@ -287,9 +273,32 @@ class Entity:
             setattr(self, key, val)
         return leftovers
 
-    def parent_gid(self):
-        """Remplement this to return the parent global id"""
-        return None
+    def change_from(self, other: "Entity"):
+        """Compute a Change between self (old) and other (new).
+        Granularity: level-1 entity properties. If a level-1 key's value
+        has changed, the whole key is included in the delta."""
+        from fusion.libs.entity.change import Change
+
+        if self.id != other.id:
+            raise ValueError("Cannot create change from entities with different IDs")
+
+        old_state = dump_to_dict(self)
+        new_state = dump_to_dict(other)
+
+        reverse_delta = {}
+        forward_delta = {}
+
+        all_keys = set(old_state.keys()) | set(new_state.keys())
+        for key in all_keys:
+            old_val = old_state.get(key)
+            new_val = new_state.get(key)
+            if old_val != new_val:
+                if old_val is not None:
+                    reverse_delta[key] = old_val
+                if new_val is not None:
+                    forward_delta[key] = new_val
+
+        return Change((self.id, reverse_delta, forward_delta))
 
     def set_immutable(
         self, immutable: bool = True, error_message: str = "Entity marked as immutable."
@@ -304,6 +313,15 @@ class Entity:
         self.immutability_error_message = error_message
 
 
-class PDSerializedEntity(BaseModel):
-    id: str
-    type_name: str
+def transformed_entity(entity: Entity, change) -> Entity:
+    """Apply a Change's forward component to an entity, producing a new entity.
+    Only works with UPDATE changes."""
+    from fusion.libs.entity.change import ChangeTypes
+
+    if entity.id != change.entity_id:
+        raise ValueError("Cannot apply change from a different entity")
+    if change.type() != ChangeTypes.UPDATE:
+        raise ValueError("Can only apply UPDATE changes via transformed_entity")
+
+    new_dict = {**dump_to_dict(entity), **change.forward_component}
+    return load_from_dict(new_dict)

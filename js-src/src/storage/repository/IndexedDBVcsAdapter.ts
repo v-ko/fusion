@@ -1,13 +1,13 @@
 import { Commit, CommitMetadataData } from "../version-control/Commit";
 import { openDB, DBSchema, IDBPDatabase, deleteDB } from 'idb';
-import { StorageAdapter, BranchMetadata, InternalRepoUpdate } from "./StorageAdapter";
+import { VcsAdapter, BranchMetadata, InternalRepoUpdate } from "./VcsAdapter";
 import { DeltaData } from "../../model/Delta";
 import { CommitGraph } from "../version-control/CommitGraph";
 import { DebugConnectionTracker, wrapDbWithTransactionDebug } from "../management/DebugUtils";
 import { getLogger } from "../../logging";
 
 
-let log = getLogger('IndexedDB_storageAdapter');
+let log = getLogger('IndexedDBVcsAdapter');
 
 const DEBUG_DB = false;
 
@@ -31,15 +31,19 @@ interface RepoDB extends DBSchema {
         value: { commitId: string, delta: DeltaData };
         indexes: { 'by-commitId': string };
     };
+    properties: {
+        key: string;
+        value: object;
+    };
 }
 
-export class IndexedDBStorageAdapter implements StorageAdapter {
+export class IndexedDBVcsAdapter implements VcsAdapter {
     private _db: IDBPDatabase<RepoDB> | null = null;
     private _projectId: string;
 
     constructor(projectId: string) {
         this._projectId = projectId;
-        log.info('Instantiated IndexedDBStorageAdapter for project:', projectId)
+        log.info('Instantiated IndexedDBVcsAdapter for project:', projectId)
     }
 
     async initialize(): Promise<void> {
@@ -63,6 +67,8 @@ export class IndexedDBStorageAdapter implements StorageAdapter {
                 branchesStore.createIndex('by-name', 'name');
                 commitsStore.createIndex('by-id', 'id');
                 deltasStore.createIndex('by-commitId', 'commitId');
+
+                db.createObjectStore('properties');
             },
             blocked() {
                 log.error(`IndexedDB blocked - another connection is still open`);
@@ -249,5 +255,16 @@ export class IndexedDBStorageAdapter implements StorageAdapter {
             log.error('Error erasing IndexedDB storage for project', this._projectId, e);
         }
         log.info('Erased IndexedDB storage for project', this._projectId);
+    }
+
+    private static readonly PROPERTIES_KEY = 'project';
+
+    async getProjectProperties(): Promise<object | null> {
+        const value = await this.db.get('properties', IndexedDBVcsAdapter.PROPERTIES_KEY);
+        return (value as Record<string, unknown>) ?? null;
+    }
+
+    async setProjectProperties(properties: object): Promise<void> {
+        await this.db.put('properties', properties, IndexedDBVcsAdapter.PROPERTIES_KEY);
     }
 }

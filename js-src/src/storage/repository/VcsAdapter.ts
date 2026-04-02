@@ -20,10 +20,14 @@ export interface InternalRepoUpdate extends Omit<InternalRepoUpdateNoDeltas, 'ad
     updatedCommits: Commit[];
 }
 
-export interface StorageAdapter {
+export interface VcsAdapter {
     getCommitGraph(): Promise<CommitGraph>;
     getCommits(ids: string[]): Promise<Commit[]>;
     applyUpdate(update: InternalRepoUpdate): Promise<void>;
     close(): void;
     eraseStorage(): Promise<void>;
+
+    // Project metadata - we consider it part of the .pamet repo (comparable to git metadata)
+    getProjectProperties(): Promise<object | null>;
+    setProjectProperties(properties: object): Promise<void>;
 }

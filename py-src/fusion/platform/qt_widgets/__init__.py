@@ -2,9 +2,8 @@ from typing import TYPE_CHECKING, Any, Callable, Generic, Optional, TypeVar
 
 from PySide6.QtCore import Property as _QtProperty, QObject
 
-from fusion import fsm, set_main_loop
+from fusion import set_main_loop
 from fusion.libs.entity.change import Change
-from fusion.libs.state import ViewState
 
 if TYPE_CHECKING:  # pragma: no cover - typing aid
     T = TypeVar("T")
@@ -40,17 +39,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing aid
 
 else:
     Property = _QtProperty
-
-
-def bind_and_apply_state(qobject: QObject, state: ViewState, on_state_change: Callable):
-
-    subscription = fsm.state_changes_per_TLA_by_view_id.subscribe(
-        on_state_change, index_val=state.view_id
-    )
-    qobject.destroyed.connect(lambda: subscription.unsubscribe())
-
-    # fusion.call_delayed(on_state_change, args=[Change.CREATE(state)])
-    on_state_change(Change.CREATE(state))
 
 
 def configure_for_qt(app):

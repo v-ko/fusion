@@ -22,6 +22,13 @@ export interface FileRequest {
     fileItemContentHash?: string;
 }
 
+export interface ProjectData {
+    id: string;
+    title: string;
+    description: string;
+    created: string;
+}
+
 export class RepositoryConfigMismatchError extends Error {
     constructor(message: string) {
         super(message);
@@ -33,13 +40,26 @@ export type FileRequestParser = (storageService: StorageServiceActual, url: stri
 
 export type RepoUpdateNotifiedSignature = (update: RepoUpdateData) => void;
 
+export function deriveProjectUri(projectId: string, adapterName: string): string {
+    switch (adapterName) {
+        case 'IndexedDB':
+            return `indexeddb:///${projectId}`;
+        case 'RestApi':
+            return `file:///${projectId}`;
+        default:
+            return `project:///${projectId}`;
+    }
+}
+
 export interface StorageServiceActualInterface {
-    loadProject: (projectId: string, repoManagerConfig: ProjectStorageConfig) => Promise<void>;
-    createProject: (projectId: string, projectStorageConfig: ProjectStorageConfig) => Promise<void>;
+    loadProject: (projectId: string, repoManagerConfig: ProjectStorageConfig, projectUri?: string) => Promise<void>;
+    createProject: (projectId: string, projectStorageConfig: ProjectStorageConfig, projectProperties?: ProjectData) => Promise<string>;
     unloadProject: (projectId: string) => Promise<void>;
-    deleteProject: (projectId: string, projectStorageConfig: ProjectStorageConfig) => Promise<void>;
+    removeProject: (projectId: string, projectStorageConfig: ProjectStorageConfig) => Promise<void>;
     getCommitGraph: (projectId: string) => Promise<CommitGraphData>;
     getCommits: (projectId: string, commitIds: string[]) => Promise<CommitData[]>;
+    getProjectProperties: (projectId: string) => Promise<ProjectData | null>;
+    setProjectProperties: (projectId: string, projectProperties: ProjectData) => Promise<void>;
 
     // Repo changes (mostly commits to the domain store as of now) can come from
     // different sources (the UI/FDS, remote storage sync adapters), so they operate
@@ -79,7 +99,7 @@ function createCommitRequest(projectId: string, deltaData: DeltaData, message: s
         type: 'commit',
         projectId: projectId,
         deltaData: deltaData,
-        message: message
+        message: message,
     }
 }
 
@@ -231,6 +251,7 @@ export class StorageService {
     private _workerStateListeners: WeakSet<ServiceWorker> = new WeakSet();
     private _activeProjectConfig: ProjectStorageConfig | null = null;
     private _activeProjectUpdateCallback: RepoUpdateNotifiedSignature | undefined;
+    private _activeProjectUri: string | undefined;
     private _reconnectInFlight: Promise<void> | null = null;
 
     constructor() {
@@ -392,16 +413,17 @@ export class StorageService {
     }
 
     // Proxy interface methods
-    async loadProject(projectId: string, projectStorageConfig: ProjectStorageConfig, commitNotify?: RepoUpdateNotifiedSignature): Promise<void> {
+    async loadProject(projectId: string, projectStorageConfig: ProjectStorageConfig, commitNotify?: RepoUpdateNotifiedSignature, projectUri?: string): Promise<void> {
         log.info('Loading project with storage config', projectStorageConfig)
         this.setState({
             activeProjectId: projectId,
             projectPhase: 'attaching',
         });
         try {
-            await this.runStorageCall('loadProject', `projectId=${projectId}`, () => this.service.loadProject(projectId, projectStorageConfig));
+            await this.runStorageCall('loadProject', `projectId=${projectId}`, () => this.service.loadProject(projectId, projectStorageConfig, projectUri));
             this._activeProjectConfig = projectStorageConfig;
             this._activeProjectUpdateCallback = commitNotify;
+            this._activeProjectUri = projectUri;
             if (commitNotify) {
                 this._projectUpdateCallbacks.set(projectId, commitNotify);
             }
@@ -411,6 +433,7 @@ export class StorageService {
         } catch (error) {
             this._activeProjectConfig = null;
             this._activeProjectUpdateCallback = undefined;
+            this._activeProjectUri = undefined;
             this._projectUpdateCallbacks.delete(projectId);
             this.setState({
                 activeProjectId: null,
@@ -434,6 +457,7 @@ export class StorageService {
             if (shouldClearActiveProject) {
                 this._activeProjectConfig = null;
                 this._activeProjectUpdateCallback = undefined;
+                this._activeProjectUri = undefined;
                 this.setState({
                     activeProjectId: null,
                     projectPhase: 'detached',
@@ -441,11 +465,17 @@ export class StorageService {
             }
         }
     }
-    async deleteProject(projectId: string, projectStorageConfig: ProjectStorageConfig): Promise<void> {
-        return this.runStorageCall('deleteProject', `projectId=${projectId}`, () => this.service.deleteProject(projectId, projectStorageConfig));
+    async removeProject(projectId: string, projectStorageConfig: ProjectStorageConfig): Promise<void> {
+        return this.runStorageCall('removeProject', `projectId=${projectId}`, () => this.service.removeProject(projectId, projectStorageConfig));
     }
-    async createProject(projectId: string, projectStorageConfig: ProjectStorageConfig): Promise<void> {
-        return this.runStorageCall('createProject', `projectId=${projectId}`, () => this.service.createProject(projectId, projectStorageConfig));
+    async createProject(projectId: string, projectStorageConfig: ProjectStorageConfig, projectProperties?: ProjectData): Promise<string> {
+        return this.runStorageCall('createProject', `projectId=${projectId}`, () => this.service.createProject(projectId, projectStorageConfig, projectProperties));
+    }
+    async getProjectProperties(projectId: string): Promise<ProjectData | null> {
+        return this.runStorageCall('getProjectProperties', `projectId=${projectId}`, () => this.service.getProjectProperties(projectId));
+    }
+    async setProjectProperties(projectId: string, projectProperties: ProjectData): Promise<void> {
+        return this.runStorageCall('setProjectProperties', `projectId=${projectId}`, () => this.service.setProjectProperties(projectId, projectProperties));
     }
     async _storageOperationRequest(request: StorageOperationRequest): Promise<StorageOperationResult> {
         const detail = 'projectId' in request
@@ -456,9 +486,6 @@ export class StorageService {
     async commit(projectId: string, deltaData: DeltaData, message: string): Promise<CommitOperationResult> {
         let request = createCommitRequest(projectId, deltaData, message)
         const result = await this._storageOperationRequest(request);
-        if (!result || result.type !== 'commit' || !('commit' in result) || !result.commit) {
-            throw new Error('Commit operation returned no commit payload. The page and storage backend may be out of sync.');
-        }
         return result as CommitOperationResult;
     }
     getCommitGraph(projectId: string): Promise<CommitGraphData> {
@@ -702,7 +729,7 @@ export class StorageService {
         try {
             await this.runWithTimeout(
                 'restoreActiveProject',
-                this.service.loadProject(this.state.activeProjectId, this._activeProjectConfig),
+                this.service.loadProject(this.state.activeProjectId, this._activeProjectConfig, this._activeProjectUri),
                 STORAGE_SERVICE_CALL_TIMEOUT_MS
             );
             if (this._activeProjectUpdateCallback) {
@@ -924,14 +951,14 @@ export class StorageServiceActual implements StorageServiceActualInterface {
         }
     }
 
-    async loadProject(projectId: string, projectStorageConfig: ProjectStorageConfig): Promise<void> {
+    async loadProject(projectId: string, projectStorageConfig: ProjectStorageConfig, projectUri?: string): Promise<void> {
         /**
          * Creates the Repo manager (if not already present) and increments reference count.
          */
         let repoManager = this.repoManagers[projectId];
         if (!repoManager) {
-            repoManager = new ProjectStorageManager(projectStorageConfig);
-            await repoManager.loadProject();
+            repoManager = new ProjectStorageManager(projectStorageConfig, this);
+            await repoManager.loadProject(projectUri);
             this.repoManagers[projectId] = repoManager;
             this.repoRefCounts[projectId] = 0;
 
@@ -969,7 +996,7 @@ export class StorageServiceActual implements StorageServiceActualInterface {
 
         if (this.repoRefCounts[projectId] <= 0) {
             let repoManager = this.repoManagers[projectId];
-            repoManager.shutdown();
+            await repoManager.shutdown();
 
             delete this.repoRefCounts[projectId];
             delete this.repoManagers[projectId];
@@ -977,14 +1004,14 @@ export class StorageServiceActual implements StorageServiceActualInterface {
         }
     }
 
-    async createProject(projectId: string, projectStorageConfig: ProjectStorageConfig): Promise<void> {
+    async createProject(projectId: string, projectStorageConfig: ProjectStorageConfig, projectProperties?: ProjectData): Promise<string> {
         let repoManager = this.repoManagers[projectId];
         if (repoManager) {
             throw new Error(`Project ${projectId} already exists.`);
         }
 
-        repoManager = new ProjectStorageManager(projectStorageConfig);
-        await repoManager.createProject();
+        repoManager = new ProjectStorageManager(projectStorageConfig, this);
+        await repoManager.createProject(projectProperties);
 
         console.log(`[createProject] Created repo with head store ${JSON.stringify(repoManager._onDeviceRepo?.headStore)}`)
         // this.repoManagers[projectId] = repoManager;
@@ -992,28 +1019,52 @@ export class StorageServiceActual implements StorageServiceActualInterface {
 
         this.repoRefCounts[projectId] = 0;
 
+        return deriveProjectUri(projectId, projectStorageConfig.onDeviceVcsAdapter.name);
     }
 
-    async deleteProject(projectId: string, projectStorageConfig: ProjectStorageConfig): Promise<void> {
-        // Delete the local storage
-        let projectStorageManager = this.repoManagers[projectId];
-
-        // If the repo manager is not loaded - load it temporarily
-        let wasTemporarilyLoaded = false;
-        if (projectStorageManager === undefined) {
-            log.info('Loading repo temporarily for deletion', projectId);
-            await this.loadProject(projectId, projectStorageConfig);
-            wasTemporarilyLoaded = true;
-            log.info('Loaded repo temporarily for deletion', projectId);
+    async getProjectProperties(projectId: string): Promise<ProjectData | null> {
+        const repoManager = this.repoManagers[projectId];
+        if (!repoManager) {
+            throw new Error(`Project ${projectId} is not loaded. Properties are only accessible for loaded projects.`);
         }
-        projectStorageManager = this.repoManagers[projectId];
-        await projectStorageManager.onDeviceRepo.eraseStorage();
-        log.info('Erased local storage for project', projectId);
+        return repoManager.getProjectProperties();
+    }
 
-        if (wasTemporarilyLoaded) { // Unload tmp repo
+    async setProjectProperties(projectId: string, projectProperties: ProjectData): Promise<void> {
+        const repoManager = this.repoManagers[projectId];
+        if (!repoManager) {
+            throw new Error(`Project ${projectId} is not loaded. Properties are only accessible for loaded projects.`);
+        }
+        await repoManager.setProjectProperties(projectProperties);
+    }
+
+    async removeProject(projectId: string, projectStorageConfig: ProjectStorageConfig): Promise<void> {
+        let repoManager = this.repoManagers[projectId];
+        const wasLoaded = !!repoManager;
+
+        if (!repoManager) {
+            // Temporarily create a PSM to access adapters for erasure
+            repoManager = new ProjectStorageManager(projectStorageConfig, this);
+            await repoManager.loadProject();
+        }
+
+        // Each adapter's eraseStorage() does the right thing:
+        // IndexedDB/CacheAPI erase their data; RestApi adapters are no-ops.
+        await repoManager.eraseLocalStorage();
+
+        log.info(`Removed project ${projectId}`);
+
+        if (wasLoaded) {
             await this.unloadProject(projectId);
-            log.info('Unloaded temporary repo', projectId);
+        } else {
+            await repoManager.shutdown();
         }
+    }
+
+    async commit(projectId: string, deltaData: DeltaData, message: string): Promise<CommitOperationResult> {
+        const request = createCommitRequest(projectId, deltaData, message);
+        const result = await this._storageOperationRequest(request);
+        return result as CommitOperationResult;
     }
 
     async _storageOperationRequest(request: StorageOperationRequest): Promise<StorageOperationResult> {
@@ -1096,6 +1147,13 @@ export class StorageServiceActual implements StorageServiceActualInterface {
                 upsertedCommits
             }
         });
+
+        // Push committed delta to domain store (filesystem bridge).
+        // PSM's syncDeltaToDomainStore is a no-op when no domain store is configured.
+        // For commits originating from external FS changes (pulled by PSM's poll loop),
+        // this writes back the same data — the backend PFM detects no diff and it's a no-op.
+        const commitData = commit.data();
+        await repoManager.syncDeltaToDomainStore(commitData.deltaData, commitData.snapshotHash);
 
         return {
             type: 'commit',

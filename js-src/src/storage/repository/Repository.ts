@@ -1,22 +1,23 @@
 import { getLogger } from "../../logging";
 import { Commit, CommitData } from "../version-control/Commit";
 import { CommitGraph, CommitGraphData } from "../version-control/CommitGraph";
-import { StorageAdapter, InternalRepoUpdate } from "./StorageAdapter";
+import { VcsAdapter, InternalRepoUpdate } from "./VcsAdapter";
 import { inferRepoChangesFromGraphs, sanityCheckAndHydrateInternalRepoUpdate } from "../management/sync-utils";
 import { Delta, DeltaData, squashDeltas } from "../../model/Delta";
 import { createId } from "../../util/base";
 import { HangingSubtreesError, HashTree, buildHashTree, updateHashTree } from "../version-control/HashTree";
-import { InMemoryStore, IndexConfig } from "../domain-store/InMemoryStore";
-import { InMemoryStorageAdapter } from "./InMemoryStorageAdapter";
-import { IndexedDBStorageAdapter } from "./IndexedDB_storageAdapter";
-import { RestApiStorageAdapter } from "./RestApiStorageAdapter";
+import { InMemoryStore, DEFAULT_INDEX_CONFIGS_LIST } from "../domain-store/InMemoryStore";
+import { Entity, EntityData } from "../../model/Entity";
+import { InMemoryVcsAdapter } from "./InMemoryVcsAdapter";
+import { IndexedDBVcsAdapter } from "./IndexedDBVcsAdapter";
+import { RestApiVcsAdapter } from "./RestApiVcsAdapter";
 import { RestApiAuthConfig } from "../rest-api/Auth";
 let log = getLogger('Repository')
 
-export type StorageAdapterNames = "InMemory" | "IndexedDB" | "RestApi" | "InMemorySingletonForTesting";
+export type VcsAdapterNames = "InMemory" | "IndexedDB" | "RestApi" | "InMemorySingletonForTesting";
 
 // For running tests only
-let _inmemadapter_instances_by_id: Map<string, InMemoryStorageAdapter> = new Map();
+let _inmemadapter_instances_by_id: Map<string, InMemoryVcsAdapter> = new Map();
 
 export function clearInMemoryAdapterInstances() {
     _inmemadapter_instances_by_id.clear();
@@ -29,17 +30,23 @@ export class RepositoryIntegrityError extends Error {
     }
 }
 
-export interface StorageAdapterArgs {
+export class MissingBranchError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = "MissingBranchError";
+    }
+}
+
+export interface VcsAdapterArgs {
     projectId: string;
     localBranchName: string;
-    indexConfig?: any; // For InMemory, can be used to pass index configuration
     baseUrl?: string;
     auth?: RestApiAuthConfig;
 }
 
-export interface StorageAdapterConfig {
-    name: StorageAdapterNames
-    args: StorageAdapterArgs;
+export interface VcsAdapterConfig {
+    name: VcsAdapterNames
+    args: VcsAdapterArgs;
 }
 
 export interface ResetFilter {
@@ -55,23 +62,23 @@ export interface CommitOptions {
     skipConflictingChanges?: boolean;
 }
 
-export async function getStorageAdapter(config: StorageAdapterConfig): Promise<StorageAdapter> {
+export async function getVcsAdapter(config: VcsAdapterConfig): Promise<VcsAdapter> {
     if (config.name === 'InMemory') {
-        return new InMemoryStorageAdapter();
+        return new InMemoryVcsAdapter();
     } else if (config.name === 'IndexedDB') {
         const { projectId } = config.args;
-        const storageAdapter = new IndexedDBStorageAdapter(projectId);
-        await storageAdapter.initialize();
-        return storageAdapter;
+        const adapter = new IndexedDBVcsAdapter(projectId);
+        await adapter.initialize();
+        return adapter;
     } else if (config.name === 'RestApi') {
         const { projectId, localBranchName, baseUrl, auth } = config.args;
         if (!baseUrl) {
-            throw new Error("RestApi storage adapter requires args.baseUrl in config");
+            throw new Error("RestApi VCS adapter requires args.baseUrl in config");
         }
         if (!auth) {
-            throw new Error("RestApi storage adapter requires args.auth in config");
+            throw new Error("RestApi VCS adapter requires args.auth in config");
         }
-        return new RestApiStorageAdapter(
+        return new RestApiVcsAdapter(
             projectId,
             localBranchName,
             baseUrl,
@@ -80,20 +87,19 @@ export async function getStorageAdapter(config: StorageAdapterConfig): Promise<S
     } else if (config.name === 'InMemorySingletonForTesting') {
         const { projectId } = config.args;
         if (!_inmemadapter_instances_by_id.has(projectId)) {
-            const inMemAdapter = new InMemoryStorageAdapter();
+            const inMemAdapter = new InMemoryVcsAdapter();
             _inmemadapter_instances_by_id.set(projectId, inMemAdapter);
         }
         return _inmemadapter_instances_by_id.get(projectId)!;
     } else {
-        throw new Error(`Unknown storage adapter type: ${config.name}`);
+        throw new Error(`Unknown VCS adapter type: ${config.name}`);
     }
 }
 
 export class Repository {
-    _storageAdapter: StorageAdapter;
-    private _adapterConfig: StorageAdapterConfig;
+    _vcsAdapter: VcsAdapter;
+    private _adapterConfig: VcsAdapterConfig;
     private _isCaching: boolean;
-    private _indexConfigs: readonly IndexConfig[];
 
     _currentBranch: string;
     private _headStore: InMemoryStore | null = null;
@@ -102,43 +108,41 @@ export class Repository {
     private _hashTree: HashTree | null = null;
 
     private constructor(
-        storageAdapter: StorageAdapter,
-        adapterConfig: StorageAdapterConfig,
-        enableCaching: boolean,
-        indexConfigs: readonly IndexConfig[]) {
+        storageAdapter: VcsAdapter,
+        adapterConfig: VcsAdapterConfig,
+        enableCaching: boolean) {
 
-        this._storageAdapter = storageAdapter;
+        this._vcsAdapter = storageAdapter;
         this._isCaching = enableCaching;
         this._adapterConfig = adapterConfig;
-        this._indexConfigs = indexConfigs;
         this._currentBranch = adapterConfig.args.localBranchName;
 
         // Initialize the commit graph and head store
         if (enableCaching) {
-            log.info(`Repository constructor: caching enabled. Using storage adapter: ${adapterConfig.name}`);
+            log.info(`Repository constructor: caching enabled. Using VCS adapter: ${adapterConfig.name}`);
             this._commitGraph = new CommitGraph();
-            this._headStore = new InMemoryStore(indexConfigs);
+            this._headStore = new InMemoryStore(DEFAULT_INDEX_CONFIGS_LIST);
         } else {
-            log.info(`Repository constructor: caching disabled. Using storage adapter: ${adapterConfig.name}`);
+            log.info(`Repository constructor: caching disabled. Using VCS adapter: ${adapterConfig.name}`);
         }
     }
 
-    private static async init(config: StorageAdapterConfig, enableCaching: boolean, indexConfigs: readonly IndexConfig[]): Promise<Repository> {
-        const storageAdapter = await getStorageAdapter(config);
-        const repo = new Repository(storageAdapter, config, enableCaching, indexConfigs);
+    private static async init(config: VcsAdapterConfig, enableCaching: boolean): Promise<Repository> {
+        const storageAdapter = await getVcsAdapter(config);
+        const repo = new Repository(storageAdapter, config, enableCaching);
         // Always init with defualt current branch. There's no repo without
         // a head. And then we'll pull from wherever
         repo._commitGraph.createBranch(repo._currentBranch);
         return repo
     }
 
-    static async open(config: StorageAdapterConfig, enableCaching: boolean, indexConfigs: readonly IndexConfig[]): Promise<Repository> {
-        let repo = await Repository.init(config, enableCaching, indexConfigs);
+    static async open(config: VcsAdapterConfig, enableCaching: boolean, headStoreData?: Entity<EntityData>[]): Promise<Repository> {
+        let repo = await Repository.init(config, enableCaching);
 
-        log.info(`Opening repository with caching: ${enableCaching}, storage adapter: ${config.name}`);
+        log.info(`Opening repository with caching: ${enableCaching}, VCS adapter: ${config.name}`);
 
         //
-        const commitGraph = await repo._storageAdapter.getCommitGraph();
+        const commitGraph = await repo._vcsAdapter.getCommitGraph();
         const allBranches = commitGraph.branches();
         const allCommits = commitGraph.commits();
         log.info(`[Repository.open] Loaded commit graph for branch "${repo._currentBranch}". ` +
@@ -147,29 +151,39 @@ export class Repository {
 
         let branch = commitGraph.branch(repo._currentBranch);
         if (branch === undefined) {
-            throw new Error(`Branch "${repo._currentBranch}" not found in the commit graph. ` +
+            throw new MissingBranchError(`Branch "${repo._currentBranch}" not found in the commit graph. ` +
                 `Branches (${allBranches.length}): [${allBranches.map(b => b.name).join(', ')}], ` +
                 `Commits: ${allCommits.length}, ` +
-                `Storage adapter: ${config.name}, projectId: ${config.args.projectId}`);
+                `VCS adapter: ${config.name}, projectId: ${config.args.projectId}`);
         }
 
         if (!repo._isCaching) {
-            log.info(`Repository opened without caching. Using storage adapter: ${config.name}`);
+            log.info(`Repository opened without caching. Using VCS adapter: ${config.name}`);
             return repo;
         }
 
+        if (headStoreData) {
+            // Populate headStore from provided entity data (e.g. domain store)
+            for (const entity of headStoreData) {
+                repo.headStore.insertOne(entity);
+            }
+            log.info(`Populated headStore from provided data: ${headStoreData.length} entities`);
+        } else {
+            // Hydrate from VCS adapter (replay deltas)
+            await repo.hydrateCacheFromVcsAdapter();
+        }
+
         repo._hashTree = await buildHashTree(repo.headStore);
-        await repo.hydrateCacheFromStorageAdater();
-        log.info(`Repository opened with caching enabled. Using storage adapter: ${config.name}`);
+        log.info(`Repository opened with caching enabled. Using VCS adapter: ${config.name}`);
         return repo;
     }
 
-    static async create(config: StorageAdapterConfig, enableCaching: boolean, indexConfigs: readonly IndexConfig[]): Promise<Repository> {
-        const repo = await Repository.init(config, enableCaching, indexConfigs);
+    static async create(config: VcsAdapterConfig, enableCaching: boolean): Promise<Repository> {
+        const repo = await Repository.init(config, enableCaching);
 
         // Create the default branch on the adappters
         // Locally the default is created in the constructor (to use for pull from adapetr)
-        await repo._storageAdapter.applyUpdate({
+        await repo._vcsAdapter.applyUpdate({
             addedCommits: [],
             removedCommits: [],
             updatedCommits: [],
@@ -204,7 +218,7 @@ export class Repository {
             // Return a defensive clone so callers cannot mutate internal graph
             return CommitGraph.fromData(this._commitGraph.data());
         }
-        return await this._storageAdapter.getCommitGraph();
+        return await this._vcsAdapter.getCommitGraph();
     }
 
     async getCommits(ids: string[]): Promise<Commit[]> {
@@ -219,7 +233,7 @@ export class Repository {
             }
             return commits;
         }
-        return this._storageAdapter.getCommits(ids);
+        return this._vcsAdapter.getCommits(ids);
     }
 
     async commit(delta: Delta, message: string, options: CommitOptions = {}): Promise<Commit> {
@@ -279,7 +293,7 @@ export class Repository {
             updatedBranches: [branch],
             removedBranches: []
         };
-        await this._storageAdapter.applyUpdate(internalUpdate);
+        await this._vcsAdapter.applyUpdate(internalUpdate);
 
         return commit;
     }
@@ -303,11 +317,11 @@ export class Repository {
             updatedBranches: [],
             removedBranches: []
         };
-        await this._storageAdapter.applyUpdate(update);
+        await this._vcsAdapter.applyUpdate(update);
         // throw Error(`Created branch ${JSON.stringify(await this._storageAdapter.getCommitGraph())} for name ${branchName}`)
     }
 
-    async pull(repository: Repository | StorageAdapter) {
+    async pull(repository: Repository | VcsAdapter) {
         let remoteGraph = await repository.getCommitGraph()
         const ownGraph = await this.getCommitGraph();
 
@@ -324,21 +338,21 @@ export class Repository {
         let repoUpdate = sanityCheckAndHydrateInternalRepoUpdate(repoUpdateSlim, upsertedCommits);
 
         // Persist the changes to the underlying storage first
-        await this._storageAdapter.applyUpdate(repoUpdate);
+        await this._vcsAdapter.applyUpdate(repoUpdate);
 
         if (this._isCaching) {
             await this._applyInternalUpdateToCache(repoUpdate, remoteGraph);
         }
     }
 
-    async hydrateCacheFromStorageAdater() {
+    async hydrateCacheFromVcsAdapter() {
         if (!this._isCaching) {
             throw new Error("Cannot hydrate cache without caching enabled");
         }
 
-        log.info('Hydrating cache from storage adapter');
+        log.info('Hydrating cache from VCS adapter');
         // Get the commit graph from the storage adapter
-        const remoteGraph = await this._storageAdapter.getCommitGraph();
+        const remoteGraph = await this._vcsAdapter.getCommitGraph();
         const ownGraph = await this.getCommitGraph();
 
         let repoUpdateSlim = inferRepoChangesFromGraphs(ownGraph, remoteGraph);
@@ -348,7 +362,7 @@ export class Repository {
             ...repoUpdateSlim.addedCommits.map((c) => c.id),
             ...repoUpdateSlim.updatedCommits.map((c) => c.id)
         ];
-        let upsertedCommits = upsertIds.length > 0 ? await this._storageAdapter.getCommits(upsertIds) : [];
+        let upsertedCommits = upsertIds.length > 0 ? await this._vcsAdapter.getCommits(upsertIds) : [];
 
         let repoUpdate = sanityCheckAndHydrateInternalRepoUpdate(repoUpdateSlim, upsertedCommits);
 
@@ -365,7 +379,7 @@ export class Repository {
         let repoUpdate = sanityCheckAndHydrateInternalRepoUpdate(repoUpdateSlim, upsertedCommits);
 
         // Persist the changes to the underlying storage first
-        await this._storageAdapter.applyUpdate(repoUpdate);
+        await this._vcsAdapter.applyUpdate(repoUpdate);
 
         if (this._isCaching) {
             await this._applyInternalUpdateToCache(repoUpdate, remoteGraph);
@@ -446,7 +460,7 @@ export class Repository {
             updatedBranches: [branch],
             removedBranches: []
         };
-        await this._storageAdapter.applyUpdate(update);
+        await this._vcsAdapter.applyUpdate(update);
     }
 
     async _applyInternalUpdateToCache(repoChanges: InternalRepoUpdate, remoteGraph: CommitGraph): Promise<void> {
@@ -547,17 +561,25 @@ export class Repository {
     }
 
     async eraseStorage(): Promise<void> {
-        return this._storageAdapter.eraseStorage();
+        return this._vcsAdapter.eraseStorage();
+    }
+
+    async getProjectProperties(): Promise<object | null> {
+        return this._vcsAdapter.getProjectProperties();
+    }
+
+    async setProjectProperties(properties: object): Promise<void> {
+        return this._vcsAdapter.setProjectProperties(properties);
     }
 
     close() {
-        log.info('Repo close called. Closing storage adapter.');
-        this._storageAdapter.close();
+        log.info('Repo close called. Closing VCS adapter.');
+        this._vcsAdapter.close();
     }
 }
 
 
-export  async function verifyRepositoryIntegrity(repository: Repository | StorageAdapter, branchName: string): Promise<boolean> {
+export  async function verifyRepositoryIntegrity(repository: Repository | VcsAdapter, branchName: string): Promise<boolean> {
     log.info(`Verifying integrity of repository for branch "${branchName}"`);
 
     const commitGraph: CommitGraph = await repository.getCommitGraph();

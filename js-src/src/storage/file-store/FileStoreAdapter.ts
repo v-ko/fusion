@@ -18,4 +18,5 @@ export interface FileStoreAdapter {
   moveFileToTrash: (fileId: string, contentHash: string) => Promise<void>;
   restoreFileFromTrash: (fileId: string, contentHash: string) => Promise<void>;
   cleanTrash: () => Promise<void>;
+  eraseStorage: () => Promise<void>;
 }

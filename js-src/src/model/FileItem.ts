@@ -9,7 +9,7 @@ export interface FileItemContent {
 // Subclasses extend with type-specific fields (e.g. ImageItemMetadata adds width/height).
 export interface FileItemMetadata {
     size: number;       // Size of the file in bytes
-    mimeType: string;   // MIME type of the file (e.g. 'image/jpeg', 'application/pdf')
+    mime_type: string;   // MIME type of the file (e.g. 'image/jpeg', 'application/pdf')
     [key: string]: unknown; // Allow subtype-specific fields (e.g. width, height for images)
 }
 
@@ -41,7 +41,7 @@ export class FileItem extends Entity<FileItemData> {
     }
 
     get mimeType(): string {
-        return this._data.metadata.mimeType;
+        return this._data.metadata.mime_type;
     }
 
     get size(): number {

@@ -15,8 +15,10 @@ export class RestApiFileStoreAdapter implements FileStoreAdapter {
   }
 
   private _url(path: string): string {
-    if (!path.startsWith('/')) path = '/' + path;
-    return `${this._baseUrl}${path}`;
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    const url = new URL(`${this._baseUrl}${normalizedPath}`);
+    url.searchParams.set('project_id', this._projectId);
+    return url.toString();
   }
 
   private _headers(): HeadersInit {
@@ -36,6 +38,7 @@ export class RestApiFileStoreAdapter implements FileStoreAdapter {
 
     // Upload blob to desktop server under id + hash mapping
     const form = new FormData();
+    form.append('path', path);
     // Use original filename from path if available
     const filename = path.split(/[\\/]/).pop() || `${fileItem.id}`;
     form.append('file', blob, filename);
@@ -89,5 +92,9 @@ export class RestApiFileStoreAdapter implements FileStoreAdapter {
     if (!response.ok) {
       throw new Error(`Failed to clean trash: ${response.status} ${response.statusText}`);
     }
+  }
+
+  async eraseStorage(): Promise<void> {
+    // RestApi adapter does not own persistent storage — nothing to erase.
   }
 }

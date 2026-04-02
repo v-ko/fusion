@@ -1,14 +1,12 @@
 import { ProjectStorageManager, ProjectStorageConfig } from "./ProjectStorageManager";
-import { clearInMemoryAdapterInstances, StorageAdapterConfig } from "../repository/Repository";
-import { indexConfigs } from "../test-utils";
+import { clearInMemoryAdapterInstances, VcsAdapterConfig } from "../repository/Repository";
 
 
-const INMEM_PROJECT_STORAGE_CONFIG: StorageAdapterConfig = {
+const INMEM_PROJECT_STORAGE_CONFIG: VcsAdapterConfig = {
     name: 'InMemorySingletonForTesting',
     args: {
         localBranchName: 'dev1',
         projectId: 'test-project-id',
-        indexConfig: indexConfigs
     }
 }
 
@@ -21,9 +19,9 @@ describe("ProjectStorageManager base functionality", () => {
         projectId = 'test-project-id';
 
         projectStorageConfig = {
+            projectId,
             deviceBranchName: 'dev1',
-            storeIndexConfigs: indexConfigs,
-            onDeviceStorageAdapter: INMEM_PROJECT_STORAGE_CONFIG,
+            onDeviceVcsAdapter: INMEM_PROJECT_STORAGE_CONFIG,
             onDeviceFileStore: {
                 name: "InMemory",
                 args: { projectId }
@@ -46,7 +44,7 @@ describe("ProjectStorageManager base functionality", () => {
         expect(projectStorageManager.onDeviceRepo._commitGraph.branches()).toHaveLength(1);
 
         // Shutdown and reload
-        projectStorageManager.shutdown();
+        await projectStorageManager.shutdown();
     });
 
     test("Erase local storage", async () => {
@@ -55,7 +53,7 @@ describe("ProjectStorageManager base functionality", () => {
         // Should not throw
         await projectStorageManager.eraseLocalStorage();
 
-        projectStorageManager.shutdown();
+        await projectStorageManager.shutdown();
     });
 
     test("Erase local storage before initialization", async () => {

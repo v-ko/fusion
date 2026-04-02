@@ -10,6 +10,7 @@ __version__ = importlib.metadata.version("python-fusion")
 
 from fusion.libs.entity import Entity, entity_type
 from fusion.libs.entity.change import Change, ChangeTypes
+from fusion.libs.entity.delta import Delta
 
 # from fusion.state_manager import FusionStateManager
 from fusion.loop import main_loop, set_main_loop

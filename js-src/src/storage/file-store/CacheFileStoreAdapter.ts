@@ -151,6 +151,13 @@ export class CacheFileStoreAdapter implements FileStoreAdapter {
   }
 
 
+  async eraseStorage(): Promise<void> {
+    log.info(`Erasing CacheAPI storage: ${this._cacheName}`);
+    this._cache = null;
+    await caches.delete(this._cacheName);
+    log.info(`Erased CacheAPI storage: ${this._cacheName}`);
+  }
+
   async close(): Promise<void> {
     // Cache API doesn't need explicit closing
     this._cache = null;

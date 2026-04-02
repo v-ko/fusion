@@ -1,9 +1,9 @@
-import { DEFAULT_INDEX_CONFIGS_LIST, InMemoryStore } from "../domain-store/InMemoryStore";
+import { InMemoryStore } from "../domain-store/InMemoryStore";
 import { Change } from "../../model/Change";
 import { Commit } from "../version-control/Commit";
 import { buildHashTree } from "../version-control/HashTree";
 import { Delta } from "../../model/Delta";
-import { Repository, StorageAdapterConfig } from "fusion/storage/repository/Repository";
+import { Repository, VcsAdapterConfig } from "fusion/storage/repository/Repository";
 import { createId } from "../../util/base";
 import { DummyPage, DummyNote } from "../test-utils";
 
@@ -13,14 +13,14 @@ describe("Repository base functionality", () => {
     let repo: Repository;
 
     beforeEach(async () => {
-        const config: StorageAdapterConfig = {
+        const config: VcsAdapterConfig = {
             name: 'InMemory',
             args: {
                 localBranchName: 'dev1',
                 projectId: createId()
             }
         };
-        repo = await Repository.create(config, true, DEFAULT_INDEX_CONFIGS_LIST);
+        repo = await Repository.create(config, true);
     });
 
     test("Commit", async () => {
@@ -65,14 +65,14 @@ describe("Repository base functionality", () => {
     });
 
     test("Pull same branch", async () => {
-        const config2: StorageAdapterConfig = {
+        const config2: VcsAdapterConfig = {
             name: 'InMemory',
             args: {
                 localBranchName: 'dev1',
                 projectId: createId()
             }
         };
-        let repo2 = await Repository.create(config2, true, DEFAULT_INDEX_CONFIGS_LIST);
+        let repo2 = await Repository.create(config2, true);
 
         // Add some data to repo1
         let sourceStore = new InMemoryStore()

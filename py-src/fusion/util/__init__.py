@@ -3,11 +3,11 @@ from __future__ import annotations
 import random
 import re
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from contextlib import contextmanager
 from datetime import datetime
 from hashlib import md5
-from typing import Any, Generator, List, Union
+from typing import Any, Generator
 
 from .color import Color
 from .point2d import Point2D
@@ -62,12 +62,12 @@ def verify_id_format(id: str) -> bool:
 
 
 def find_many_by_props(
-    item_list: Union[list, dict], **props
+    item_list: Iterable[Any] | Mapping[Any, Any], **props: Any
 ) -> Generator[Any, None, None]:
-    """Filter a list or dict and return only objets which have attributes
+    """Filter an iterable or mapping and return only objets which have attributes
     matching the provided keyword arguments (key==attr_name and val==attr_val)
     """
-    if isinstance(item_list, dict):
+    if isinstance(item_list, Mapping):
         item_list = item_list.values()
     elif isinstance(item_list, Iterable):
         pass
@@ -88,8 +88,10 @@ def find_many_by_props(
             yield item
 
 
-def find_one_by_props(item_list: list | dict, **props) -> Any:
-    """Convenience method to filter for one object in a list or dict with
+def find_one_by_props(
+    item_list: Iterable[Any] | Mapping[Any, Any], **props: Any
+) -> Any:
+    """Convenience method to filter for one object in an iterable or mapping with
     attributes matching the given keyword arguments.
     """
     items_found = list(find_many_by_props(item_list, **props))

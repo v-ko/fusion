@@ -2,18 +2,17 @@ import { Change } from "fusion/model/Change";
 import { Delta } from "fusion/model/Delta";
 import { ProjectStorageConfig } from "fusion/storage/management/ProjectStorageManager";
 import * as StorageServiceModule from "fusion/storage/management/StorageService";
-import { clearInMemoryAdapterInstances, RepoUpdateData, StorageAdapterConfig } from "fusion/storage/repository/Repository";
-import { indexConfigs, DummyNote, DummyPage } from "fusion/storage/test-utils";
+import { clearInMemoryAdapterInstances, RepoUpdateData, VcsAdapterConfig } from "fusion/storage/repository/Repository";
+import { DummyNote, DummyPage } from "fusion/storage/test-utils";
 import { createId } from "fusion/util/base";
 import { addChannel, Channel } from "fusion/registries/Channel";
 
 
-const INMEM_PROJECT_STORAGE_CONFIG: StorageAdapterConfig = {
+const INMEM_PROJECT_STORAGE_CONFIG: VcsAdapterConfig = {
     name: 'InMemorySingletonForTesting',
     args: {
         localBranchName: 'dev1',
         projectId: 'test-project-id',
-        indexConfig: indexConfigs
     }
 }
 
@@ -61,9 +60,9 @@ describe("StorageService base functionality", () => {
         projectId = 'test-project-id';
 
         projectStorageConfig = {
+            projectId,
             deviceBranchName: 'dev1',
-            storeIndexConfigs: indexConfigs,
-            onDeviceStorageAdapter: INMEM_PROJECT_STORAGE_CONFIG,
+            onDeviceVcsAdapter: INMEM_PROJECT_STORAGE_CONFIG,
             onDeviceFileStore: {
                 name: "InMemory",
                 args: { projectId }
@@ -98,7 +97,7 @@ describe("StorageService base functionality", () => {
         jest.useFakeTimers();
 
         const pendingRemote = {
-            createProject: jest.fn(() => new Promise<void>(() => { })),
+            createProject: jest.fn(() => new Promise<string>(() => { })),
             disconnect: jest.fn(),
         };
 
@@ -122,7 +121,7 @@ describe("StorageService base functionality", () => {
     });
 
     test("disconnected remote call reconnects once before executing", async () => {
-        const remoteCreate = jest.fn(async () => { });
+        const remoteCreate = jest.fn(async () => { return 'inmemory:///test-project'; });
         const reconnectSpy = jest.spyOn(storageService as any, 'reconnectToWorker').mockImplementation(async () => {
             (storageService as any)._service = {
                 createProject: remoteCreate,
@@ -212,8 +211,9 @@ describe("StorageService base functionality", () => {
         // Second unload is a no-op (idempotent)
         await storageService.unloadProject(projectId);
 
-        // Delete to avoid errors on the next test
-        await storageService.deleteProject(projectId, projectStorageConfig);
+        // Reload and delete to avoid errors on the next test
+        await storageService.loadProject(projectId, projectStorageConfig, () => { });
+        await storageService.removeProject(projectId, projectStorageConfig);
     });
 
     test("Project create and delete", async () => {
@@ -223,8 +223,8 @@ describe("StorageService base functionality", () => {
         // Try to create again, expect failure for duplicate id
         await expect(storageService.createProject(projectId, projectStorageConfig)).rejects.toThrow();
 
-        // Delete
-        await storageService.deleteProject(projectId, projectStorageConfig);
+        // Remove (works even when not loaded — temporarily loads internally)
+        await storageService.removeProject(projectId, projectStorageConfig);
 
         // Try to load deleted project
         await expect(storageService.loadProject(projectId, projectStorageConfig, () => { })).rejects.toThrow();
@@ -273,7 +273,7 @@ describe("StorageService base functionality", () => {
 
         // Add a file blob
         const blob = new Blob(['test content'], { type: 'text/plain' });
-        const fileData = await storageService.addFile(projectId, blob, '/test.txt', 'some-parent-id', { size: blob.size, mimeType: blob.type });
+        const fileData = await storageService.addFile(projectId, blob, '/test.txt', 'some-parent-id', { size: blob.size, mime_type: blob.type });
 
         expect(fileData).toBeDefined();
         expect(fileData.id).toBeDefined();

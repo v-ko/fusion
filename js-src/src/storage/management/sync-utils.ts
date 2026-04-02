@@ -2,7 +2,7 @@ import { Commit, CommitMetadata, CommitData } from "../version-control/Commit";
 import { Repository, RepoUpdateData, verifyRepositoryIntegrity } from "../repository/Repository";
 import { ChangeType } from "../../model/Change";
 import { CommitGraph } from "../version-control/CommitGraph";
-import { InternalRepoUpdate, InternalRepoUpdateNoDeltas } from "../repository/StorageAdapter";
+import { InternalRepoUpdate, InternalRepoUpdateNoDeltas } from "../repository/VcsAdapter";
 import { Delta, DeltaData, squashDeltas } from "../../model/Delta";
 import { getLogger } from "../../logging";
 

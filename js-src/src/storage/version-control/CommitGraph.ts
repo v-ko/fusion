@@ -1,4 +1,4 @@
-import { BranchMetadata } from "../repository/StorageAdapter";
+import { BranchMetadata } from "../repository/VcsAdapter";
 import { CommitMetadata, CommitMetadataData } from "./Commit";
 
 export interface CommitGraphData {
