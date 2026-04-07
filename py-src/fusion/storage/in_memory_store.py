@@ -23,9 +23,7 @@ class InMemoryStore(Store):
             defaultdict(set)
         )
 
-    def type_cache_supported_subclass(
-        self, entity: Entity
-    ) -> type[Entity] | None:
+    def type_cache_supported_subclass(self, entity: Entity) -> type[Entity] | None:
         if not self.types_for_cached_type_filtering:
             return None
 

@@ -91,10 +91,7 @@ class Delta:
         return Delta(changes)
 
     def asdict(self) -> DeltaData:
-        return {
-            eid: list(change.asdict())
-            for eid, change in self._changes.items()
-        }
+        return {eid: list(change.asdict()) for eid, change in self._changes.items()}
 
     def changes(self) -> Generator[Change, None, None]:
         for change in self._changes.values():

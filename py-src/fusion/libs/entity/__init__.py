@@ -31,16 +31,6 @@ def reset_entity_id_counter():
     # For debugging purposes
 
 
-def _entity_hash(self):
-    return hash(self.id)
-
-
-def _entity_eq(self, other) -> bool:
-    if not other:
-        return False
-    return self.id == other.id
-
-
 T = TypeVar("T")
 
 
@@ -60,11 +50,6 @@ def entity_type(entity_class: Type[T], repr: bool = False) -> Type[T]:
         hash=False,
         eq=False,
     )
-
-    # Transplant __hash__ and __eq__ — attrs (like dataclasses) would not
-    # inherit them from a parent class that was processed by attrs.
-    entity_class.__hash__ = _entity_hash
-    entity_class.__eq__ = _entity_eq
 
     # Register the entity class
     entity_class_name = entity_class.__name__
@@ -125,22 +110,9 @@ def load_from_dict(entity_dict: dict):
             "library. Have you added the @entity_type decorator?"
         )
 
-    init_kwargs = {}
-    if "id" in entity_dict:
-        init_kwargs["id"] = entity_dict.pop("id")
-
-    if "parent_id" in entity_dict:
-        init_kwargs["parent_id"] = entity_dict.pop("parent_id")
-
-    instance = cls(**init_kwargs)
-
-    leftovers = instance.replace_silent(**entity_dict)
-    if leftovers:
-        log.error(
-            f"Leftovers while loading entity "
-            f'(id={init_kwargs.get("id", None)}): {leftovers}'
-        )
-    return instance
+    field_names = {a.name for a in attrs.fields(cls)}
+    init_kwargs = {k: v for k, v in entity_dict.items() if k in field_names}
+    return cls(**init_kwargs)
 
 
 @entity_type
@@ -161,21 +133,19 @@ class Entity:
     id: str = attrs.field(factory=get_entity_id, on_setattr=attrs.setters.frozen)
     parent_id: str = ""
 
+    def __hash__(self):
+        return hash(self.id)
+
+    def __eq__(self, other) -> bool:
+        if not other:
+            return False
+        return self.id == other.id
+
     def __repr__(self) -> str:
         return f"<{type(self).__name__} id={self.id}>"
 
     def __copy__(self):
         return self.copy()
-
-    @classmethod
-    def create_silent(cls, **props):
-        if "id" in props:
-            entity = cls(id=props.pop("id"))
-        else:
-            entity = cls()
-        entity.replace_silent(**props)
-
-        return entity
 
     def copy(self) -> "Entity":
         self_copy = type(self)(**self.asdict())
@@ -191,9 +161,7 @@ class Entity:
         """Return the entity fields as a dict (non-recursive, shallow copy
         of mutable values)."""
         self_dict = {
-            a.name: getattr(self, a.name)
-            for a in attrs.fields(type(self))
-            if a.repr
+            a.name: getattr(self, a.name) for a in attrs.fields(type(self)) if a.repr
         }
 
         for key, val in self_dict.items():
@@ -207,25 +175,6 @@ class Entity:
         """Update entity fields using keyword arguments."""
         for key, val in changes.items():
             setattr(self, key, val)
-
-    def replace_silent(self, **changes):
-        """Same as replace, but ignores fields that are not present on the
-        entity class."""
-        if "id" in changes:
-            id_val = changes.pop("id")
-            if id_val != self.id:
-                raise Exception(
-                    "The id of an entity is immutable. "
-                    "To produce a copy with a changed id use Entity.with_id"
-                )
-
-        leftovers = {}
-        for key, val in changes.items():
-            if not hasattr(self, key):
-                leftovers[key] = val
-                continue
-            setattr(self, key, val)
-        return leftovers
 
     def change_from(self, other: "Entity"):
         """Compute a Change between self (old) and other (new).

@@ -2,14 +2,13 @@ import { DummyNote } from 'fusion/storage/test-utils';
 import { dumpToDict, loadFromDict } from './Entity'
 
 
-test('Entity methods', () => {
+test('Entity replace', () => {
     let e = new DummyNote({ id: '456', parent_id: '', testProp: 'test' });
-    let leftovers = e.replace_silent({ s: 'Note3', testProp: 'test2' });
+    e.replace({ testProp: 'test2' });
 
     let outDict = e.data();
 
     expect(outDict).toEqual({ id: '456', parent_id: '', testProp: 'test2' });
-    expect(leftovers).toEqual({ s: 'Note3' });
 });
 
 test('Entity copy', () => {

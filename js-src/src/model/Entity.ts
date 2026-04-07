@@ -52,9 +52,8 @@ export function entityType<T extends typeof Entity<S>, S extends EntityData>(nam
     }
 
     return function (entity_class: T): T {
-        let entityClassName = name; // Use the explicitly provided name instead of inferring
-        // log.info(`Registering entity class ${entityClassName}`);
-        entityLibrary[entityClassName] = entity_class;
+        entityLibrary[name] = entity_class;
+        (entity_class as any)._typeName = name;
         return entity_class;
     }
 }
@@ -71,13 +70,11 @@ export interface SerializedEntityData extends EntityData {
 // Serialization related functions
 export function dumpToDict<T extends Entity<EntityData>>(entity: T): SerializedEntityData {
     const entityDict = entity.data() as SerializedEntityData
-    const typeName = entity.constructor.name
-    // If not in the library, throw error
-    if (entityLibrary[typeName] === undefined) {
-        throw new Error(`Entity class ${typeName} not found in the library`);
+    const typeName = (entity.constructor as any)._typeName as string | undefined
+    if (!typeName || entityLibrary[typeName] === undefined) {
+        throw new Error(`Entity class ${entity.constructor.name} not found in the library`);
     }
-    entityDict.type_name = entity.constructor.name
-
+    entityDict.type_name = typeName
     return entityDict
 }
 
@@ -143,22 +140,6 @@ export abstract class Entity<T extends EntityData> {
         this._data = newData;
     }
 
-    replace_silent(new_data: Record<string, any>): Record<string, any> {
-        const newData: Partial<T> = {};
-        const leftovers: Record<string, any> = {};
-
-        for (const key in new_data) {
-            if ((key as keyof T) in this._data || typeof (this._data as any)[key] !== 'undefined') {
-                newData[key as keyof T] = new_data[key];
-            } else {
-                leftovers[key] = new_data[key];
-            }
-        }
-
-        this.replace(newData);
-
-        return leftovers;
-    }
     changeFrom(other: Entity<EntityData>): Change {
         /**
          * Granularity: level 1 entity property. Read below!
