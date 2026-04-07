@@ -50,18 +50,15 @@ function getEntityDataString(entity: any): string {
     return JSON.stringify(sortedData);
 }
 
-enum NodeType {  // The hash struct needs to index multiple trees in the store
-    SUPER_ROOT,  // This is the store root
-    ROOT,        // Each entity without a parent is a root
-    NON_ROOT     // All other entities are non-roots
-}
+// Tree structure:
+// - Super-root (entityId='', virtual) anchors all root nodes
+// - Root nodes (parentId='') represent top-level entities (pages)
+// - Non-root nodes represent children (notes, arrows)
 
 export class HashTreeNode {
-    // The store itsel is not an entity, so the root has null id
     tree: HashTree;
-    type: NodeType;
     entityId: string; // The super-root has an empty id
-    parentId: string = ''; //  root nodes have an empty parent id
+    parentId: string = ''; // Root nodes have an empty parent id
 
     children: { [key: string]: HashTreeNode } = {}; // by entity id
     childrenSorted: HashTreeNode[] = []; // sorted by entity id
@@ -73,12 +70,32 @@ export class HashTreeNode {
     _removed: boolean = false;
     _childrenNotSorted: boolean = false;
 
-    constructor(tree: HashTree, entityId: string, parentId: string, entityDataHash: string, type: NodeType) {
+    private constructor(tree: HashTree, entityId: string, parentId: string, entityDataHash: string) {
         this.tree = tree;
-        this.type = type;
         this.entityId = entityId;
         this.parentId = parentId;
         this.entityDataHash = entityDataHash;
+    }
+
+    static createSuperRoot(tree: HashTree): HashTreeNode {
+        return new HashTreeNode(tree, '', '', '');
+    }
+
+    static createRoot(tree: HashTree, entityId: string, entityDataHash: string): HashTreeNode {
+        if (entityId === '') {
+            throw Error("Root nodes must have an entity id");
+        }
+        return new HashTreeNode(tree, entityId, '', entityDataHash);
+    }
+
+    static create(tree: HashTree, entityId: string, parentId: string, entityDataHash: string): HashTreeNode {
+        if (entityId === '') {
+            throw Error("Entity id must not be empty");
+        }
+        if (parentId === '') {
+            throw Error("Non-root nodes must have a parent id (use createRoot for roots)");
+        }
+        return new HashTreeNode(tree, entityId, parentId, entityDataHash);
     }
 
     data(): any {
@@ -229,33 +246,24 @@ export class HashTree {
         this._removedNodeCleanupNeeded = true;
     }
 
-    createSuperRoot() {
+    private createSuperRoot() {
         if (!!this.superRoot) {
             throw Error("Cannot have multiple super-root nodes");
         }
-        let superRoot = new HashTreeNode(this, '', '', '', NodeType.SUPER_ROOT);
-        this.insertNode(superRoot);
+        let superRoot = HashTreeNode.createSuperRoot(this);
+        this.superRoot = superRoot;
+        this.nodes[''] = superRoot;
     }
 
-    createRoot(entityId: string, entityDataHash: string) {
-        if (entityId === '') {
-            throw Error("Root nodes must have an entity id");
-        }
-        let root = new HashTreeNode(this, entityId, '', entityDataHash, NodeType.ROOT);
-        this.insertNode(root);
-        return root;
-    }
-
-    createNonRoot(entityId: string, parentId: string, entityDataHash: string) {
+    createNode(entityId: string, parentId: string, entityDataHash: string): HashTreeNode {
+        let node;
         if (parentId === '') {
-            throw Error("Non-root nodes must have a parent id");
+            node = HashTreeNode.createRoot(this, entityId, entityDataHash);
+        } else {
+            node = HashTreeNode.create(this, entityId, parentId, entityDataHash);
         }
-        if (entityId === '') {
-            throw Error("Non-root nodes must have an entity id");
-        }
-        let nonRoot = new HashTreeNode(this, entityId, parentId, entityDataHash, NodeType.NON_ROOT);
-        this.insertNode(nonRoot);
-        return nonRoot;
+        this.insertNode(node);
+        return node;
     }
 
     insertNode(node: HashTreeNode) {
@@ -265,29 +273,18 @@ export class HashTree {
 
         let parent = this.nodes[node.parentId];
 
-        if (node.type === NodeType.SUPER_ROOT) { // For adding the super-root
-            if (!!this.superRoot){
-                throw Error("Cannot have multiple super-root nodes");
-            }
-            if (parent) {
-                throw Error("Wtf. Super-root node cannot have a parent");
-            }
-            this.superRoot = node;
-            this.nodes[node.entityId] = node;
-
-        // Else if the parent is not in the tree, add it to the temporary subtrees
-        } else if (!parent) {
+        if (!parent) {
+            // Parent not in the tree yet — buffer for later reattachment
             log.info('Parent not found, adding to tmp subtrees', node.parentId)
-            if (!this._tmpSubtrees[node.parentId]) {  // Create list if not already present
+            if (!this._tmpSubtrees[node.parentId]) {
                 this._tmpSubtrees[node.parentId] = [];
             }
             this._tmpSubtrees[node.parentId].push(node);
             return;
-
-        } else {  // If the parent is in the tree, add the node to it
-            parent.addChild(node);
-            this.nodes[node.entityId] = node;
         }
+
+        parent.addChild(node);
+        this.nodes[node.entityId] = node;
 
         // If some of the tmp subtree roots have this node as a parent
         // reattach them properly
@@ -393,28 +390,38 @@ async function hash(data: string, dataForConcat: string[] = []): Promise<string>
     return hashHex;
 }
 
-async function buildSubtree(store: Store, tree: HashTree, startNode: HashTreeNode) {
-    const children = Array.from(store.find({ parentId: startNode.entityId }));
-
-    // Add children
-    for (let child of children) {
-        const data = getEntityDataString(child);
-        let childNode = tree.createNonRoot(child.id, child.parentId, await hash(data));
-        await buildSubtree(store, tree, childNode)
-    }
-}
-
 export async function buildHashTree(store: Store): Promise<HashTree> {
     let t0 = performance.now();
     let tree: HashTree = new HashTree();
 
-    // For every root node - add it, and build its subtree
+    // Collect all entities reachable from roots, batch-hash in parallel
     let rootEntities = Array.from(store.find({ parentId: '' }));
-    for (let rootEntity of rootEntities) {
-        const data = getEntityDataString(rootEntity);
-        let rootNode = tree.createRoot(rootEntity.id, await hash(data));
-        await buildSubtree(store, tree, rootNode)
+
+    // Gather all children for each root (only one level of nesting in practice)
+    let allEntities: any[] = [...rootEntities];
+    for (let root of rootEntities) {
+        let children = Array.from(store.find({ parentId: root.id }));
+        allEntities.push(...children);
     }
+
+    // Batch-compute all entity data hashes in parallel
+    const dataStrings = allEntities.map(e => getEntityDataString(e));
+    const entityHashes = await Promise.all(dataStrings.map(d => hash(d)));
+
+    // Insert roots first so children find their parents
+    let hashByEntityId: { [id: string]: string } = {};
+    for (let i = 0; i < allEntities.length; i++) {
+        hashByEntityId[allEntities[i].id] = entityHashes[i];
+    }
+    // Insert roots first so children find their parent in the tree
+    for (let root of rootEntities) {
+        tree.createNode(root.id, '', hashByEntityId[root.id]);
+    }
+    for (let i = rootEntities.length; i < allEntities.length; i++) {
+        const entity = allEntities[i];
+        tree.createNode(entity.id, entity.parentId, hashByEntityId[entity.id]);
+    }
+
     await tree.updateRootHash();
     let t1 = performance.now();
     log.info(`Hash tree built in ${t1 - t0} ms`);
@@ -453,9 +460,7 @@ export async function updateHashTree(tree: HashTree, store: Store, delta: Delta)
             }
             const data = getEntityDataString(entity);
             let hashString = await hash(data);
-            let nodeType = entity.parentId === '' ? NodeType.ROOT : NodeType.NON_ROOT;
-            let node = new HashTreeNode(tree, change.entityId, entity.parentId, hashString, nodeType);
-            tree.insertNode(node);
+            tree.createNode(change.entityId, entity.parentId, hashString);
         } else {
             throw Error("Unexpected change type");
         }
