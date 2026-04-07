@@ -16,10 +16,6 @@ class ChangeTypes(Enum):
     DELETE = 3
 
 
-# ChangeData is a tuple of (entity_id, reverse_component, forward_component)
-ChangeData = tuple[str, dict[str, Any], dict[str, Any]]
-
-
 class Change:
     """Represents a single entity-level change using forward/reverse deltas.
 
@@ -28,32 +24,21 @@ class Change:
     - UPDATE: both have partial diffs (only changed fields)
     """
 
-    def __init__(self, data: ChangeData):
-        self._data = data
+    __slots__ = ("entity_id", "reverse_component", "forward_component")
 
-    @property
-    def data(self) -> ChangeData:
-        return self._data
+    def __init__(
+        self,
+        entity_id: str,
+        reverse_component: dict[str, Any],
+        forward_component: dict[str, Any],
+    ):
+        self.entity_id = entity_id
+        self.reverse_component = reverse_component
+        self.forward_component = forward_component
 
-    @property
-    def entity_id(self) -> str:
-        return self._data[0]
-
-    @property
-    def reverse_component(self) -> dict[str, Any]:
-        return self._data[1]
-
-    @reverse_component.setter
-    def reverse_component(self, value: dict[str, Any]):
-        self._data = (self._data[0], value, self._data[2])
-
-    @property
-    def forward_component(self) -> dict[str, Any]:
-        return self._data[2]
-
-    @forward_component.setter
-    def forward_component(self, value: dict[str, Any]):
-        self._data = (self._data[0], self._data[1], value)
+    def asdict(self) -> tuple[str, dict[str, Any], dict[str, Any]]:
+        """Serialize to the wire format: (entity_id, reverse, forward)."""
+        return (self.entity_id, self.reverse_component, self.forward_component)
 
     def type(self) -> ChangeTypes:
         has_reverse = len(self.reverse_component) > 0
@@ -73,18 +58,18 @@ class Change:
 
     @staticmethod
     def create(entity: Entity) -> Change:
-        return Change((entity.id, {}, dump_to_dict(entity)))
+        return Change(entity.id, {}, dump_to_dict(entity))
 
     @staticmethod
     def delete(entity: Entity) -> Change:
-        return Change((entity.id, dump_to_dict(entity), {}))
+        return Change(entity.id, dump_to_dict(entity), {})
 
     @staticmethod
     def update(old_entity: Entity, new_entity: Entity) -> Change:
         return old_entity.change_from(new_entity)
 
     def reversed(self) -> Change:
-        return Change((self.entity_id, self.forward_component, self.reverse_component))
+        return Change(self.entity_id, self.forward_component, self.reverse_component)
 
     def is_create(self) -> bool:
         return self.type() == ChangeTypes.CREATE

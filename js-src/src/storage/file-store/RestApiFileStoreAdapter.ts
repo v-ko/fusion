@@ -73,27 +73,6 @@ export class RestApiFileStoreAdapter implements FileStoreAdapter {
     }
   }
 
-  async moveFileToTrash(mediaId: string, contentHash: string): Promise<void> {
-    // Same as remove - server moves to trash
-    return this.removeFile(mediaId, contentHash);
-  }
-
-  async restoreFileFromTrash(mediaId: string, contentHash: string): Promise<void> {
-    const url = this._url(`/media/item/${encodeURIComponent(mediaId)}/${encodeURIComponent(contentHash)}/restore`);
-    const response = await fetch(url, { method: 'POST', headers: this._headers() });
-    if (!response.ok) {
-      throw new Error(`Failed to restore media: ${response.status} ${response.statusText}`);
-    }
-  }
-
-  async cleanTrash(): Promise<void> {
-    const url = this._url(`/media/trash/clean`);
-    const response = await fetch(url, { method: 'POST', headers: this._headers() });
-    if (!response.ok) {
-      throw new Error(`Failed to clean trash: ${response.status} ${response.statusText}`);
-    }
-  }
-
   async eraseStorage(): Promise<void> {
     // RestApi adapter does not own persistent storage — nothing to erase.
   }

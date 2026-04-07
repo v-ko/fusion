@@ -4,7 +4,7 @@ from typing import Any
 
 from fusion.libs.entity import Entity
 from fusion.libs.entity.change import Change
-from fusion.storage.base_store import IMMUTABILITY_ERROR_MESSAGE, Store
+from fusion.storage.base_store import Store
 from fusion.util import find_many_by_props
 
 
@@ -37,9 +37,6 @@ class InMemoryStore(Store):
     def upsert_to_cache(self, entity: Entity) -> Entity | None:
         """Adds an entity to the cache. Returns the old entity or None"""
         old_entity = self.pop_from_cache(entity.id)
-
-        # Make the entity immutable (works only in debug mode!)
-        entity.set_immutable(error_message=IMMUTABILITY_ERROR_MESSAGE)
 
         # Insert it into the indices
         self._entity_cache[entity.id] = entity

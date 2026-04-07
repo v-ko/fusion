@@ -963,9 +963,6 @@ export class StorageServiceActual implements StorageServiceActualInterface {
             this.repoRefCounts[projectId] = 0;
 
             log.info('Initialized repo manager for project', projectId);
-
-            // Perform cleanup of old deleted file items on startup
-            await repoManager.fileStore.cleanTrash();
         } else { // Repo already loaded
             log.info(`Repo manager already loaded for project ${projectId}. Skipping initialization.`);
             // Check that the configs are the same

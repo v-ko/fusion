@@ -38,7 +38,7 @@ class ChangeAggregator:
 
     def handle_change(self, change: Change):
         """Accumulate a change into the internal Delta."""
-        self._delta.add_change_from_data(change.data)
+        self._delta.add_change(change)
 
     def release_aggregated_changes(self, completed_actions):
         changes = list(self._delta.changes())

@@ -96,60 +96,6 @@ export class CacheFileStoreAdapter implements FileStoreAdapter {
     }
   }
 
-  async moveFileToTrash(fileId: string, contentHash: string): Promise<void> {
-    const cacheKey = this._getCacheKey(fileId, contentHash);
-    const request = new Request(cacheKey);
-    const response = await this.cache.match(request);
-
-    if (!response) {
-      log.warning(`File not found for trashing: ${cacheKey}`);
-      return;
-    }
-
-    const blob = await response.blob();
-    const newHeaders = new Headers(response.headers);
-    newHeaders.set('X-Delete-After', (Date.now() + 7 * 24 * 60 * 60 * 1000).toString());
-
-    const newResponse = new Response(blob, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: newHeaders
-    });
-
-    await this.cache.put(request, newResponse);
-    log.info(`Marked file for trashing in cache: ${cacheKey}`);
-  }
-
-  async restoreFileFromTrash(fileId: string, contentHash: string): Promise<void> {
-    const cacheKey = this._getCacheKey(fileId, contentHash);
-    const request = new Request(cacheKey);
-    const response = await this.cache.match(request);
-
-    if (!response) {
-      log.warning(`File not found for restore: ${cacheKey}`);
-      return;
-    }
-
-    const blob = await response.blob();
-    // Recreate response without trash-related headers
-    const headers = new Headers(response.headers);
-    headers.delete('X-Delete-After');
-
-    const newResponse = new Response(blob, {
-      status: response.status,
-      statusText: response.statusText,
-      headers
-    });
-
-    await this.cache.put(request, newResponse);
-    log.info(`Restored file in cache: ${cacheKey}`);
-  }
-
-  async cleanTrash(): Promise<void> {
-    log.info('Cache API file trash is cleaned automatically by the browser based on expiry headers.');
-    // Potentially, we could iterate and count items, but it's not necessary.
-  }
-
 
   async eraseStorage(): Promise<void> {
     log.info(`Erasing CacheAPI storage: ${this._cacheName}`);

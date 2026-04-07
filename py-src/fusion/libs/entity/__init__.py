@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, fields
-from datetime import datetime
 from typing import Type, TypeVar
 
+import attrs
+
 import fusion
-from fusion.logging import LOGGING_LEVEL, LoggingLevels, get_logger
+from fusion.logging import get_logger
 from fusion.util import get_new_id
 
 log = get_logger(__name__)
@@ -31,11 +31,11 @@ def reset_entity_id_counter():
     # For debugging purposes
 
 
-def __hash__(self):
+def _entity_hash(self):
     return hash(self.id)
 
 
-def __eq__(self, other: Entity) -> bool:
+def _entity_eq(self, other) -> bool:
     if not other:
         return False
     return self.id == other.id
@@ -46,20 +46,25 @@ T = TypeVar("T")
 
 def entity_type(entity_class: Type[T], repr: bool = False) -> Type[T]:
     """A class decorator to register entities in the entity library for the
-    purposes of serialization and deserialization. It applies the dataclass
-    decorator.
+    purposes of serialization and deserialization. It applies attrs.define.
     """
-    # Transplant __hash__ and __eq__ into every entity upon registration
-    # because the dataclasses lib disregards the inherited ones
-    entity_class.__hash__ = __hash__
-    entity_class.__eq__ = __eq__
-
     if hasattr(entity_class, "type_name"):
         raise Exception(
             "The type_name identifier is used in the serialization and is prohibited."
         )
 
-    entity_class = dataclass(entity_class, repr=repr)
+    entity_class = attrs.define(
+        entity_class,
+        slots=True,
+        repr=repr,
+        hash=False,
+        eq=False,
+    )
+
+    # Transplant __hash__ and __eq__ — attrs (like dataclasses) would not
+    # inherit them from a parent class that was processed by attrs.
+    entity_class.__hash__ = _entity_hash
+    entity_class.__eq__ = _entity_eq
 
     # Register the entity class
     entity_class_name = entity_class.__name__
@@ -95,7 +100,7 @@ def dump_to_dict(entity: Entity) -> dict:
 
     entity_dict = entity.asdict()
 
-    if "type_name" in entity_dict:  #
+    if "type_name" in entity_dict:
         raise Exception(
             "The type_name identifier is used in the serialization and is prohibited."
         )
@@ -141,74 +146,20 @@ def load_from_dict(entity_dict: dict):
 @entity_type
 class Entity:
     """The base class for entities. Provides several convenience methods for
-    conversions to and from dict, copying and attribute updates (via replace())
+    conversions to and from dict, copying and attribute updates (via replace()).
 
-    All entity subclasses should be decorated with register_entity_type
-    like so:
-
-        from fusion.entity import register_entity_type
+    All entity subclasses should be decorated with @entity_type:
 
         @entity_type
-        class EntitySubclass:
+        class EntitySubclass(Entity):
             ...
 
-    Dataclasses provides a nice syntax for attribute declaration (check out
-    the python documentation), while the register_entity_type decorator
-    registers the new subclass for the purposes of serialization.
-
-    The __init__ is used by dataclass, so in order to do stuff upon
-    construction you need to reimplement __post_init__.
-
-    Ids are used for hashing and equality checks, so they are immutable. To
-    change an id, you need to create a new entity with the new id. You can
-    use the with_id method as a shorthand for that.
+    Ids are used for hashing and equality checks, so they are frozen after
+    creation. To change an id, produce a new entity via with_id().
     """
 
-    id: str = field(default_factory=get_entity_id)
-    parent_id: str = field(default="")
-    immutability_error_message: str = field(default="", init=False, repr=False)
-
-    def __setattr__(self, key, value):
-        # Do thorough checks only when debugging
-        if LOGGING_LEVEL != LoggingLevels.DEBUG.value:
-            return object.__setattr__(self, key, value)
-
-        if self.immutability_error_message and key != "immutability_error_message":
-            raise Exception(self.immutability_error_message)
-
-        if isinstance(value, datetime):
-            if not value.tzinfo:
-                raise Exception
-
-        field_names = [f.name for f in fields(self)]
-        if not hasattr(self, key) and key not in field_names:
-            raise Exception("Cannot set missing attribute")
-
-        # Since ids are used for hashing - it's wise to make them immutable
-        if key == "id":
-            assert isinstance(value, str)  # id must be a string
-
-            if hasattr(self, "id"):
-                raise Exception
-
-        return object.__setattr__(self, key, value)
-
-    def __post_init__(self):
-        # Just for consistency if a subclass implements it at some point
-        # removes it again - sub-sub-classes
-        # who implement __post_init__ won't need to change
-        # (add/remove the super().__post_init__() calls)
-        pass
-
-    # vv These two get transplanted in the entity_type decorator, since
-    # the dataclasses lib disregards them in child classes
-    # def __hash__(self):
-    #     return hash(self.gid())
-
-    # def __eq__(self, other: 'Entity') -> bool:
-    #     if not other:
-    #         return False
-    #     return self.gid() == other.gid()
+    id: str = attrs.field(factory=get_entity_id, on_setattr=attrs.setters.frozen)
+    parent_id: str = ""
 
     def __repr__(self) -> str:
         return f"<{type(self).__name__} id={self.id}>"
@@ -231,16 +182,19 @@ class Entity:
         return self_copy
 
     def with_id(self, new_id: str) -> Entity:
-        """A convinience method to produce a copy with a changed id (since
-        the 'id' attribute is immutable (used in hashing))."""
+        """Produce a copy with a changed id (since the id field is frozen)."""
         self_dict = self.asdict()
         self_dict["id"] = new_id
         return type(self)(**self_dict)
 
     def asdict(self) -> dict:
-        """Return the entity fields as a dict"""
-        # The dataclasses.asdict recurses and that's not what we want
-        self_dict = {f.name: getattr(self, f.name) for f in fields(self) if f.repr}
+        """Return the entity fields as a dict (non-recursive, shallow copy
+        of mutable values)."""
+        self_dict = {
+            a.name: getattr(self, a.name)
+            for a in attrs.fields(type(self))
+            if a.repr
+        }
 
         for key, val in self_dict.items():
             if isinstance(val, (list, dict, set)):
@@ -250,18 +204,18 @@ class Entity:
         return self_dict
 
     def replace(self, **changes):
-        """Update entity fields using keyword arguments"""
+        """Update entity fields using keyword arguments."""
         for key, val in changes.items():
             setattr(self, key, val)
 
     def replace_silent(self, **changes):
-        """Same as replace, but ignores fields that are not present in the
-        dataclass."""
+        """Same as replace, but ignores fields that are not present on the
+        entity class."""
         if "id" in changes:
-            id = changes.pop("id")
-            if id != self.id:
+            id_val = changes.pop("id")
+            if id_val != self.id:
                 raise Exception(
-                    "The id of an entity is immutable."
+                    "The id of an entity is immutable. "
                     "To produce a copy with a changed id use Entity.with_id"
                 )
 
@@ -298,19 +252,7 @@ class Entity:
                 if new_val is not None:
                     forward_delta[key] = new_val
 
-        return Change((self.id, reverse_delta, forward_delta))
-
-    def set_immutable(
-        self, immutable: bool = True, error_message: str = "Entity marked as immutable."
-    ):
-        """!! Works only in debugging mode (LOGLEVEL=DEBUG in env)!!
-        Marks the entity as immutable and an exception with the given
-        error_message is raised if __setattr__ is called."""
-        if not immutable:
-            self.immutability_error_message = ""
-            return
-
-        self.immutability_error_message = error_message
+        return Change(self.id, reverse_delta, forward_delta)
 
 
 def transformed_entity(entity: Entity, change) -> Entity:
