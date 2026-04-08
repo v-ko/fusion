@@ -16,9 +16,7 @@ export class RestApiFileStoreAdapter implements FileStoreAdapter {
 
   private _url(path: string): string {
     const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-    const url = new URL(`${this._baseUrl}${normalizedPath}`);
-    url.searchParams.set('project_id', this._projectId);
-    return url.toString();
+    return `${this._baseUrl}/desktop/projects/${encodeURIComponent(this._projectId)}${normalizedPath}`;
   }
 
   private _headers(): HeadersInit {
@@ -36,40 +34,41 @@ export class RestApiFileStoreAdapter implements FileStoreAdapter {
       metadata: metadata
     });
 
-    // Upload blob to desktop server under id + hash mapping
+    // Upload blob to desktop server under file item id
     const form = new FormData();
+    form.append('content_hash', contentHash);
     form.append('path', path);
     // Use original filename from path if available
     const filename = path.split(/[\\/]/).pop() || `${fileItem.id}`;
     form.append('file', blob, filename);
 
-    const url = this._url(`/media/item/${encodeURIComponent(fileItem.id)}/${encodeURIComponent(contentHash)}`);
+    const url = this._url(`/files/${encodeURIComponent(fileItem.id)}`);
     const response = await fetch(url, {
       method: 'POST',
       body: form,
       headers: this._headers(),
     });
     if (!response.ok) {
-      throw new Error(`Failed to upload file: ${response.status} ${response.statusText}`);
+      throw new Error(`Failed to upload file item: ${response.status} ${response.statusText}`);
     }
 
     return fileItem.data();
   }
 
-  async getFile(mediaId: string, mediaHash: string): Promise<Blob> {
-    const url = this._url(`/media/item/${encodeURIComponent(mediaId)}/${encodeURIComponent(mediaHash)}`);
-    const response = await fetch(url, { headers: this._headers() });
+  async getFile(fileItemId: string, contentHash: string): Promise<Blob> {
+    const url = this._url(`/files/${encodeURIComponent(fileItemId)}/content`);
+    const response = await fetch(url, { headers: this._headers(), cache: 'no-store' });
     if (!response.ok) {
-      throw new Error(`Failed to fetch media: ${response.status} ${response.statusText}`);
+      throw new Error(`Failed to fetch file item: ${response.status} ${response.statusText}`);
     }
     return await response.blob();
   }
 
-  async removeFile(mediaId: string, contentHash: string): Promise<void> {
-    const url = this._url(`/media/item/${encodeURIComponent(mediaId)}/${encodeURIComponent(contentHash)}`);
+  async removeFile(fileItemId: string, contentHash: string): Promise<void> {
+    const url = this._url(`/files/${encodeURIComponent(fileItemId)}`);
     const response = await fetch(url, { method: 'DELETE', headers: this._headers() });
     if (!response.ok) {
-      throw new Error(`Failed to remove media: ${response.status} ${response.statusText}`);
+      throw new Error(`Failed to remove file item: ${response.status} ${response.statusText}`);
     }
   }
 

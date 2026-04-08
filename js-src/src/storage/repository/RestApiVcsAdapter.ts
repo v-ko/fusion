@@ -44,6 +44,7 @@ export class RestApiVcsAdapter implements VcsAdapter {
         const response = await fetch(url, {
             method: "GET",
             headers: this._headers(),
+            cache: "no-store",
         });
 
         if (!response.ok) {
@@ -193,8 +194,8 @@ export class RestApiVcsAdapter implements VcsAdapter {
                 `Failed to load project properties (${response.status} ${response.statusText})`,
             );
         }
-        const payload = await response.json() as { data?: object | null };
-        return payload.data ?? null;
+        const payload = await response.json() as object | null;
+        return payload ?? null;
     }
 
     async setProjectProperties(properties: object): Promise<void> {

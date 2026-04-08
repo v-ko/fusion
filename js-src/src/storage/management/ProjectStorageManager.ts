@@ -265,9 +265,9 @@ export class ProjectStorageManager {
     // ---- Domain store sync ----
 
     /** Push a user-initiated delta to the domain store (filesystem). */
-    async syncDeltaToDomainStore(deltaData: DeltaData, snapshotHash?: string): Promise<void> {
+    async syncDeltaToDomainStore(deltaData: DeltaData): Promise<void> {
         if (!this._domainStoreAdapter) return;
-        await this._domainStoreAdapter.applyDelta(deltaData, snapshotHash);
+        await this._domainStoreAdapter.applyDelta(deltaData);
     }
 
     /** Pull loop: fetch pending FS changes and commit them to VCS. */

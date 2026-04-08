@@ -70,7 +70,7 @@ export class BaseApiClient {
             headers: {
                 'Content-Type': 'application/json',
             },
-            cache: cache ? 'no-cache' : 'default',
+            cache: cache ? 'default' : 'no-store',
             signal: controller.signal,
         };
 

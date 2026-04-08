@@ -23,6 +23,12 @@ class InMemoryStore(Store):
             defaultdict(set)
         )
 
+    def clear(self) -> None:
+        """Remove all entities from the store."""
+        self._entity_cache.clear()
+        self._entity_cache_by_parent.clear()
+        self._entity_cache_by_type.clear()
+
     def type_cache_supported_subclass(self, entity: Entity) -> type[Entity] | None:
         if not self.types_for_cached_type_filtering:
             return None
@@ -84,7 +90,7 @@ class InMemoryStore(Store):
 
         return Change.delete(old_entity)
 
-    def find_cached(
+    def find(
         self,
         id: str | None = None,
         type: type[Entity] | None = None,
@@ -126,14 +132,3 @@ class InMemoryStore(Store):
         if filter:
             search_set = find_many_by_props(search_set, **filter)
         yield from search_set
-
-    def find(
-        self,
-        id: str | None = None,
-        type: type[Entity] | None = None,
-        parent_id: str | None = None,
-        **filter: Any,
-    ) -> Generator[Entity, None, None]:
-        yield from (
-            entity.copy() for entity in self.find_cached(id, type, parent_id, **filter)
-        )

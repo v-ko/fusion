@@ -30,8 +30,8 @@ export class InMemoryFileStoreAdapter implements FileStoreAdapter {
         return fileItem.data();
     }
 
-    async getFile(mediaId: string, mediaHash: string): Promise<Blob> {
-        const storageKey = this._getStorageKey(mediaId, mediaHash);
+    async getFile(fileItemId: string, contentHash: string): Promise<Blob> {
+        const storageKey = this._getStorageKey(fileItemId, contentHash);
         const blob = this._files.get(storageKey);
         if (!blob) {
             log.error(`File not found in in-memory store: ${storageKey}`);
@@ -40,8 +40,8 @@ export class InMemoryFileStoreAdapter implements FileStoreAdapter {
         return blob;
     }
 
-    async removeFile(mediaId: string, contentHash: string): Promise<void> {
-        const storageKey = this._getStorageKey(mediaId, contentHash);
+    async removeFile(fileItemId: string, contentHash: string): Promise<void> {
+        const storageKey = this._getStorageKey(fileItemId, contentHash);
         const deleted = this._files.delete(storageKey);
 
         if (deleted) {

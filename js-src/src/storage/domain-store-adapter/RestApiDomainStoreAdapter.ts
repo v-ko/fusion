@@ -66,21 +66,19 @@ export class RestApiDomainStoreAdapter implements DomainStoreAdapter {
         const response = await fetch(url, {
             method: 'GET',
             headers: this._headers(),
+            cache: 'no-store',
         });
         if (!response.ok) {
             throw new Error(`Failed to find entities (${response.status} ${response.statusText})`);
         }
-        const payload = await response.json() as { data?: { entities?: SerializedEntityData[] } };
-        return payload.data?.entities ?? [];
+        const payload = await response.json() as { entities?: SerializedEntityData[] };
+        return payload.entities ?? [];
     }
 
     // -- Changes exchange -------------------------------------------------
 
-    async applyDelta(deltaData: DeltaData, snapshotHash?: string): Promise<void> {
+    async applyDelta(deltaData: DeltaData): Promise<void> {
         const body: Record<string, unknown> = { delta: deltaData };
-        if (snapshotHash !== undefined) {
-            body.snapshotHash = snapshotHash;
-        }
         const response = await fetch(this._projectUrl('/changes'), {
             method: 'POST',
             headers: { ...this._headers(), 'Content-Type': 'application/json' },
@@ -96,13 +94,13 @@ export class RestApiDomainStoreAdapter implements DomainStoreAdapter {
         url.searchParams.set('timeout_ms', String(timeoutMs));
         const response = await fetch(
             url,
-            { method: 'GET', headers: this._headers() },
+            { method: 'GET', headers: this._headers(), cache: 'no-store' },
         );
         if (!response.ok) {
             throw new Error(`Failed to fetch pending delta (${response.status} ${response.statusText})`);
         }
-        const payload = await response.json() as { data?: { pendingDelta?: DeltaData | null } };
-        return payload.data?.pendingDelta ?? null;
+        const payload = await response.json() as { pendingDelta?: DeltaData | null };
+        return payload.pendingDelta ?? null;
     }
 
 }

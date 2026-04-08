@@ -41,13 +41,14 @@ export type FileRequestParser = (storageService: StorageServiceActual, url: stri
 export type RepoUpdateNotifiedSignature = (update: RepoUpdateData) => void;
 
 export function deriveProjectUri(projectId: string, adapterName: string): string {
+    const encoded = encodeURIComponent(projectId);
     switch (adapterName) {
         case 'IndexedDB':
-            return `indexeddb:///${projectId}`;
+            return `indexeddb:///${encoded}`;
         case 'RestApi':
-            return `file:///${projectId}`;
+            return `file:///${encoded}`;
         default:
-            return `project:///${projectId}`;
+            return `project:///${encoded}`;
     }
 }
 
@@ -1149,8 +1150,7 @@ export class StorageServiceActual implements StorageServiceActualInterface {
         // PSM's syncDeltaToDomainStore is a no-op when no domain store is configured.
         // For commits originating from external FS changes (pulled by PSM's poll loop),
         // this writes back the same data — the backend PFM detects no diff and it's a no-op.
-        const commitData = commit.data();
-        await repoManager.syncDeltaToDomainStore(commitData.deltaData, commitData.snapshotHash);
+        await repoManager.syncDeltaToDomainStore(commit.data().deltaData);
 
         return {
             type: 'commit',

@@ -13,7 +13,7 @@ export interface DomainStoreAdapter {
     discardBridge(): Promise<void>;
 
     find(filter?: Record<string, unknown>): Promise<SerializedEntityData[]>;
-    applyDelta(deltaData: DeltaData, snapshotHash?: string): Promise<void>;
+    applyDelta(deltaData: DeltaData): Promise<void>;
     getPendingDelta(timeoutMs?: number): Promise<DeltaData | null>;
 }
 

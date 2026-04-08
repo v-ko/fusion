@@ -36,9 +36,8 @@ export class CacheFileStoreAdapter implements FileStoreAdapter {
   }
 
   private _getCacheKey(id: string, contentHash: string): string {
-    // Create relative cache key without user/project prefix: file/item/{id}#{contentHash}
-    // This makes storage user-agnostic, with security handled by cleanup on logout
-    return `file/item/${id}#${contentHash}`;
+    // Create relative cache key: files/{id}#{contentHash}
+    return `files/${id}#${contentHash}`;
   }
 
   async addFile(blob: Blob, path: string, parentId: string, metadata: FileItemMetadata): Promise<FileItemData> {
@@ -72,9 +71,9 @@ export class CacheFileStoreAdapter implements FileStoreAdapter {
     return fileItem.data(); // Return the data instead of the ImageItem instance
   }
 
-  async getFile(fileId: string, fileHash: string): Promise<Blob> {
-    // Create cache key from fileId and fileHash
-    const cacheKey = this._getCacheKey(fileId, fileHash);
+  async getFile(fileItemId: string, contentHash: string): Promise<Blob> {
+    // Create cache key from fileItemId and contentHash
+    const cacheKey = this._getCacheKey(fileItemId, contentHash);
 
     const response = await this.cache.match(cacheKey);
 
@@ -85,8 +84,8 @@ export class CacheFileStoreAdapter implements FileStoreAdapter {
     return await response.blob();
   }
 
-  async removeFile(fileId: string, contentHash: string): Promise<void> {
-    const cacheKey = this._getCacheKey(fileId, contentHash);
+  async removeFile(fileItemId: string, contentHash: string): Promise<void> {
+    const cacheKey = this._getCacheKey(fileItemId, contentHash);
     const deleted = await this.cache.delete(cacheKey);
 
     if (deleted) {

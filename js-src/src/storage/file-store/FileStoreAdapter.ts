@@ -9,7 +9,7 @@ export class FileItemExistsInPathError extends Error {
 
 export interface FileStoreAdapter {
   addFile: (blob: Blob, path: string, parentId: string, metadata: FileItemMetadata) => Promise<FileItemData>;
-  getFile: (fileId: string, contentHash: string) => Promise<Blob>;
-  removeFile: (fileId: string, contentHash: string) => Promise<void>;
+  getFile: (fileItemId: string, contentHash: string) => Promise<Blob>;
+  removeFile: (fileItemId: string, contentHash: string) => Promise<void>;
   eraseStorage: () => Promise<void>;
 }
