@@ -19,7 +19,7 @@ classifiers = [
 dependencies = ["attrs", "peewee", "pydantic"]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-asyncio", "black", "isort", "pre-commit", "tox"]
+dev = ["pytest", "pytest-asyncio", "black", "isort", "pre-commit"]
 
 [tool.black]
 line-length = 88
@@ -28,11 +28,3 @@ line-length = 88
 profile = "black"
 line_length = 88
 combine_as_imports = true
-
-[tool.tox]
-requires = ["tox>=4.19"]
-
-[tool.tox.env_run_base]
-description = "Run formatting + tests"
-commands = [["black", "."], ["isort", "."], ["pytest"]]
-deps = [".[dev]"]

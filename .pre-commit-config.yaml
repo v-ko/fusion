@@ -1,8 +1,14 @@
+# Runs isort (imports) followed by Black (formatting) on all Python files.
+
 repos:
-  - repo: local
+  - repo: https://github.com/pycqa/isort
+    rev: 6.0.1
     hooks:
-      - id: tox
-        name: tox (tests + format)
-        language: system
-        entry: tox --conf py-src/ --workdir py-src/build/tox
-        pass_filenames: false
+      - id: isort
+        name: isort
+
+  - repo: https://github.com/psf/black
+    rev: 26.3.1
+    hooks:
+      - id: black
+        name: black
