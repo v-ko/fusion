@@ -10,6 +10,8 @@ from fusion.logging import get_logger
 from fusion.util import get_new_id
 
 log = get_logger(__name__)
+
+_EntityT = TypeVar("_EntityT", bound="Entity")
 entity_library = {}
 
 
@@ -147,15 +149,9 @@ class Entity:
     def __copy__(self):
         return self.copy()
 
-    def copy(self) -> "Entity":
+    def copy(self: _EntityT) -> _EntityT:
         self_copy = type(self)(**self.asdict())
-        return self_copy
-
-    def with_id(self, new_id: str) -> Entity:
-        """Produce a copy with a changed id (since the id field is frozen)."""
-        self_dict = self.asdict()
-        self_dict["id"] = new_id
-        return type(self)(**self_dict)
+        return self_copy  # type: ignore[return-value]
 
     def asdict(self) -> dict:
         """Return the entity fields as a dict (non-recursive, shallow copy
