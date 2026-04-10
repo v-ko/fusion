@@ -5,16 +5,12 @@ import type { RestApiAuthConfig } from "../rest-api/Auth";
 /**
  * Adapter for an external domain store (e.g. desktop backend filesystem).
  *
- * Pure passive transport: provides bridge lifecycle, entity queries,
- * and change exchange. PSM coordinates the sync loop.
+ * Provides entity queries and change exchange.
+ * Lifecycle (bridge setup/teardown) and polling are handled by StorageAddons.
  */
 export interface DomainStoreAdapter {
-    setupBridge(projectUri: string): Promise<void>;
-    discardBridge(): Promise<void>;
-
     find(filter?: Record<string, unknown>): Promise<SerializedEntityData[]>;
     applyDelta(deltaData: DeltaData): Promise<void>;
-    getPendingDelta(timeoutMs?: number): Promise<DeltaData | null>;
 }
 
 export type DomainStoreAdapterNames = "RestApi";

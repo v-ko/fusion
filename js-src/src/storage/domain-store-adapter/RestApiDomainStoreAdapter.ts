@@ -7,13 +7,13 @@ import type { DomainStoreAdapter } from "./DomainStoreAdapter";
 const log = getLogger('RestApiDomainStoreAdapter');
 
 /**
- * Domain store adapter that talks to the desktop backend REST API.
- * Pure passive transport — no polling or callbacks.
+ * Domain store adapter that talks to a backend REST API.
+ * Provides entity queries and change exchange.
  */
 export class RestApiDomainStoreAdapter implements DomainStoreAdapter {
-    private _projectId: string;
-    private _baseUrl: string;
-    private _auth: RestApiAuthConfig;
+    protected _projectId: string;
+    protected _baseUrl: string;
+    protected _auth: RestApiAuthConfig;
 
     constructor(projectId: string, baseUrl: string, auth: RestApiAuthConfig) {
         this._projectId = projectId;
@@ -21,35 +21,12 @@ export class RestApiDomainStoreAdapter implements DomainStoreAdapter {
         this._auth = auth;
     }
 
-    private _headers(): HeadersInit {
+    protected _headers(): HeadersInit {
         return buildRestApiAuthHeaders(this._auth);
     }
 
-    private _projectUrl(path: string): string {
+    protected _projectUrl(path: string): string {
         return `${this._baseUrl}/desktop/projects/${encodeURIComponent(this._projectId)}${path}`;
-    }
-
-    // -- Bridge lifecycle --------------------------------------------------
-
-    async setupBridge(projectUri: string): Promise<void> {
-        const response = await fetch(this._projectUrl('/bridge'), {
-            method: 'PUT',
-            headers: { ...this._headers(), 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uri: projectUri }),
-        });
-        if (!response.ok) {
-            throw new Error(`Failed to load project session (${response.status} ${response.statusText})`);
-        }
-    }
-
-    async discardBridge(): Promise<void> {
-        const response = await fetch(this._projectUrl('/bridge'), {
-            method: 'DELETE',
-            headers: this._headers(),
-        });
-        if (!response.ok) {
-            throw new Error(`Failed to unload project session (${response.status} ${response.statusText})`);
-        }
     }
 
     // -- Entity query -----------------------------------------------------
@@ -88,19 +65,4 @@ export class RestApiDomainStoreAdapter implements DomainStoreAdapter {
             throw new Error(`Failed to apply delta (${response.status} ${response.statusText})`);
         }
     }
-
-    async getPendingDelta(timeoutMs: number = 0): Promise<DeltaData | null> {
-        const url = new URL(this._projectUrl('/changes/pending'));
-        url.searchParams.set('timeout_ms', String(timeoutMs));
-        const response = await fetch(
-            url,
-            { method: 'GET', headers: this._headers(), cache: 'no-store' },
-        );
-        if (!response.ok) {
-            throw new Error(`Failed to fetch pending delta (${response.status} ${response.statusText})`);
-        }
-        const payload = await response.json() as { pendingDelta?: DeltaData | null };
-        return payload.pendingDelta ?? null;
-    }
-
 }

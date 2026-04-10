@@ -18,6 +18,22 @@ let log = getLogger('ProjectStorageManager');
 export type { DomainStoreAdapter } from "../domain-store-adapter/DomainStoreAdapter";
 export type { DomainStoreConfig } from "../domain-store-adapter/DomainStoreAdapter";
 
+/**
+ * Extension point for app-specific storage concerns (e.g. desktop bridge
+ * lifecycle, FS-change polling, reference enrichment).
+ *
+ * Addons are created by factories registered on StorageServiceActual and
+ * attached to the PSM before loadProject runs.
+ */
+export interface StorageAddon {
+    /** Called early, before adapter queries / VCS hydration. Use for bridge setup. */
+    onProjectLoading?(): Promise<void>;
+    /** Called after VCS is open and headStore is populated. Use for poll loop start. */
+    onProjectLoaded(): Promise<void>;
+    /** Called at the start of unload. Use for poll loop stop and bridge teardown. */
+    onProjectUnloading(): Promise<void>;
+}
+
 export interface ProjectStorageConfig {
     projectId: string;
     deviceBranchName: string;
@@ -113,8 +129,8 @@ export class ProjectStorageManager {
     private _localFileStore: FileStoreAdapter | null = null;
     private _parentStorageService: StorageServiceActual | null = null;
     private _domainStoreAdapter: DomainStoreAdapter | null = null;
-    private _bridgeActive: boolean = false;
-    private _polling: boolean = false;
+    private _addons: StorageAddon[] = [];
+    private _projectUri: string | undefined = undefined;
 
     constructor(config: ProjectStorageConfig, parentStorageService: StorageServiceActual | null = null) {
         this._config = config
@@ -150,6 +166,17 @@ export class ProjectStorageManager {
     get parentStorageService(): StorageServiceActual | null {
         return this._parentStorageService;
     }
+    get projectUri(): string | undefined {
+        return this._projectUri;
+    }
+
+    addAddon(addon: StorageAddon) {
+        this._addons.push(addon);
+    }
+
+    get domainStoreAdapter(): DomainStoreAdapter | null {
+        return this._domainStoreAdapter;
+    }
 
     async getProjectProperties(): Promise<ProjectData | null> {
         return await this.onDeviceRepo.getProjectProperties() as ProjectData | null;
@@ -162,15 +189,14 @@ export class ProjectStorageManager {
     // ---- Project lifecycle ----
 
     async loadProject(projectUri?: string) {
+        this._projectUri = projectUri;
         const ds = this._domainStoreAdapter;
 
-        // 1. Setup bridge (PFM reads .canvas files into memory)
-        if (ds) {
-            if (!projectUri) {
-                throw new Error('projectUri is required when a domain store is configured');
+        // 1. Early addon hook (e.g. bridge setup)
+        for (const addon of this._addons) {
+            if (addon.onProjectLoading) {
+                await addon.onProjectLoading();
             }
-            await ds.setupBridge(projectUri);
-            this._bridgeActive = true;
         }
 
         // 2. Open VCS (with domain store entities if available)
@@ -190,12 +216,6 @@ export class ProjectStorageManager {
                 const initialDelta = Delta.fromChanges(headStoreData.map(e => Change.create(e)));
                 await this._onDeviceRepo.commit(initialDelta, 'Initial commit from domain store');
             } else {
-                if (ds && this._bridgeActive) {
-                    await ds.discardBridge().catch((unloadError: unknown) => {
-                        log.error('Failed to discard bridge after load failure', unloadError);
-                    });
-                    this._bridgeActive = false;
-                }
                 if (e instanceof RepositoryIntegrityError) {
                     let storageAdapter = await getVcsAdapter(this.config.onDeviceVcsAdapter);
                     log.error('Attempting repository integrity verification after load failure', e);
@@ -217,19 +237,13 @@ export class ProjectStorageManager {
                 }
             }
 
-            // 4. Check for immediate pending FS changes
-            const pendingDelta = await ds.getPendingDelta(0);
-            if (pendingDelta && Object.keys(pendingDelta).length > 0) {
-                throw new Error('NotImplementedError: unexpected pending changes on project load');
-            }
         }
 
         this._localFileStore = await initFileStore(this.config.onDeviceFileStore)
 
-        // Start pulling external changes from domain store
-        if (ds) {
-            this._polling = true;
-            void this._pollLoop();
+        // Notify addons after project is fully loaded
+        for (const addon of this._addons) {
+            await addon.onProjectLoaded();
         }
     }
 
@@ -246,16 +260,14 @@ export class ProjectStorageManager {
 
     async unloadProject(): Promise<void> {
         log.info('Closing project storage manager')
-        this._polling = false;
+        for (const addon of this._addons) {
+            await addon.onProjectUnloading();
+        }
         if (this._onDeviceRepo) {
             this._onDeviceRepo.close()
         }
         this._onDeviceRepo = null;
         this._localFileStore = null;
-        if (this._domainStoreAdapter && this._bridgeActive) {
-            await this._domainStoreAdapter.discardBridge();
-            this._bridgeActive = false;
-        }
     }
 
     async shutdown() {
@@ -268,31 +280,6 @@ export class ProjectStorageManager {
     async syncDeltaToDomainStore(deltaData: DeltaData): Promise<void> {
         if (!this._domainStoreAdapter) return;
         await this._domainStoreAdapter.applyDelta(deltaData);
-    }
-
-    /** Pull loop: fetch pending FS changes and commit them to VCS. */
-    private static readonly POLL_TIMEOUT_MS = 30_000;
-    private async _pollLoop(): Promise<void> {
-        const ds = this._domainStoreAdapter!;
-        while (this._polling) {
-            try {
-                const delta = await ds.getPendingDelta(ProjectStorageManager.POLL_TIMEOUT_MS);
-                if (!this._polling) break;
-
-                if (delta && Object.keys(delta).length > 0) {
-                    if (!this._parentStorageService || !this._onDeviceRepo) break;
-                    await this._parentStorageService.commit(
-                        this.config.projectId,
-                        delta,
-                        'external filesystem change',
-                    );
-                }
-            } catch (e) {
-                if (!this._polling) break;
-                log.error('Change polling error', e);
-                await new Promise(resolve => setTimeout(resolve, 2000));
-            }
-        }
     }
 
     async eraseLocalStorage() {

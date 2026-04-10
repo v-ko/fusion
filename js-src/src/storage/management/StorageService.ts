@@ -1,5 +1,5 @@
 import * as Comlink from 'comlink';
-import { ProjectStorageManager, ProjectStorageConfig } from './ProjectStorageManager';
+import { ProjectStorageManager, ProjectStorageConfig, StorageAddon } from './ProjectStorageManager';
 import { Delta, DeltaData } from '../../model/Delta';
 import { RepoUpdateData } from "../repository/Repository"
 import { createId } from '../../util/base';
@@ -839,19 +839,23 @@ export class StorageServiceActual implements StorageServiceActualInterface {
     // Keys are `${fileId}#${contentHash}`.
     private _createdFilesThisSession: Set<string> = new Set();
 
-    constructor(fileRequestParser?: FileRequestParser) {
+    // Addon descriptors
+    private _addons: { name: string, create: (psm: ProjectStorageManager) => StorageAddon }[];
+
+    constructor(
+        fileRequestParser?: FileRequestParser,
+        addons?: { name: string, create: (psm: ProjectStorageManager) => StorageAddon }[],
+    ) {
         this.fileRequestParser = fileRequestParser;
+        this._addons = addons ?? [];
 
         // Single channel for broadcasting and receiving storage updates
         this._storageUpdateChannel = getStorageUpdatesChannel(LOCAL_STORAGE_UPDATE_CHANNEL);
         this._storageUpdateSubscription = this._storageUpdateChannel.subscribe(
             (message: LocalStorageUpdateMessage) => this._onLocalStorageUpdate(message)
         );
-
-        // setInterval(() => {
-        //     log.info(`StorageServiceActual heartbeat. ID: ${this.id}. Loaded repos: ${Object.keys(this.repoManagers).join(', ')}`);
-        // }, 5000);
     }
+
     inWorker(): boolean {
         // @ts-ignore: ServiceWorkerGlobalScope is global only in SW
         return typeof ServiceWorkerGlobalScope !== 'undefined' && self instanceof ServiceWorkerGlobalScope;
@@ -959,6 +963,12 @@ export class StorageServiceActual implements StorageServiceActualInterface {
         let repoManager = this.repoManagers[projectId];
         if (!repoManager) {
             repoManager = new ProjectStorageManager(projectStorageConfig, this);
+
+            // Attach addons
+            for (const addonDesc of this._addons) {
+                repoManager.addAddon(addonDesc.create(repoManager));
+            }
+
             await repoManager.loadProject(projectUri);
             this.repoManagers[projectId] = repoManager;
             this.repoRefCounts[projectId] = 0;
