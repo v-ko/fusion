@@ -1,6 +1,7 @@
 import { IrrationalStorageOperation, Store, SearchFilter } from "./BaseStore"
 import { Entity, EntityData, getEntityClassByName } from "../../model/Entity"
 import { Change } from "../../model/Change"
+import { Delta } from "../../model/Delta"
 import { getLogger } from "../../logging"
 
 const log = getLogger('InMemoryRepository')
@@ -454,11 +455,19 @@ export class InMemoryStore extends Store {
             throw new IrrationalStorageOperation(`Entity with ID ${entity.id} already exists.`);
         }
 
-        return this.upsertToCache(entity, true);
+        const change = this.upsertToCache(entity, true);
+        if (this.onChanges) {
+            this.onChanges(Delta.fromChanges([change]));
+        }
+        return change;
     }
 
     updateOne(entity: Entity<EntityData>): Change {
-        return this.upsertToCache(entity, false);
+        const change = this.upsertToCache(entity, false);
+        if (this.onChanges && !change.isEmpty()) {
+            this.onChanges(Delta.fromChanges([change]));
+        }
+        return change;
     }
 
     removeOne(entity: Entity<EntityData>): Change {
@@ -472,7 +481,11 @@ export class InMemoryStore extends Store {
         }
 
         this.removeFromCache(oldEntity);
-        return Change.delete(entity);
+        const change = Change.delete(entity);
+        if (this.onChanges) {
+            this.onChanges(Delta.fromChanges([change]));
+        }
+        return change;
     }
 
     *find<T extends Entity<EntityData>>(filter: SearchFilter = {}): Generator<T> {
