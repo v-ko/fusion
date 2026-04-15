@@ -246,13 +246,13 @@ export class Repository {
 
         log.info('Committing', delta, message)
         // Apply to the head store
-        const appliedDelta = this.headStore.loadDelta(delta, options.skipConflictingChanges === true);
+        const appliedDelta = this.headStore.applyDelta(delta, undefined, options.skipConflictingChanges === true);
 
         // Get snapshotHash
         try {
             await updateHashTree(this.hashTree, this.headStore, appliedDelta)
         } catch (e) {
-            this.headStore.loadDelta(appliedDelta.reversed()); // Restore the store state, commit is unsuccessful
+            this.headStore.applyDelta(appliedDelta.reversed()); // Restore the store state, commit is unsuccessful
             if (e instanceof HangingSubtreesError) {
                 throw Error('Error updating hashtree. You\'re probably trying to commit objects to the store who\'s parents are not present in it. Error: ' + e)
             }
@@ -431,7 +431,7 @@ export class Repository {
         let commitsToRevertFull = await this.getCommits(commitsToRevert.map(c => c.id));
         const reversedDeltas = commitsToRevertFull.map(c => new Delta(c.deltaData as DeltaData).reversed().data);
         const squashedDelta = squashDeltas(reversedDeltas);
-        this.headStore.loadDelta(squashedDelta);
+        this.headStore.applyDelta(squashedDelta);
 
 
         // Remove from commit graph and local commits
@@ -532,7 +532,7 @@ export class Repository {
 
             // Apply to head store
             let squashedDelta = squashDeltas(deltas)
-            this.headStore.loadDelta(squashedDelta)
+            this.headStore.applyDelta(squashedDelta)
 
             // Update the hash tree
             await updateHashTree(this.hashTree, this.headStore, squashedDelta)
@@ -564,14 +564,6 @@ export class Repository {
         return this._vcsAdapter.eraseStorage();
     }
 
-    async getProjectProperties(): Promise<object | null> {
-        return this._vcsAdapter.getProjectProperties();
-    }
-
-    async setProjectProperties(properties: object): Promise<void> {
-        return this._vcsAdapter.setProjectProperties(properties);
-    }
-
     close() {
         log.info('Repo close called. Closing VCS adapter.');
         this._vcsAdapter.close();
@@ -601,7 +593,7 @@ export  async function verifyRepositoryIntegrity(repository: Repository | VcsAda
         const delta = new Delta(commit.deltaData);
 
         // Apply delta to the in-memory store
-        store.loadDelta(delta);
+        store.applyDelta(delta);
 
         // Update the hash tree
         await updateHashTree(hashTree, store, delta);

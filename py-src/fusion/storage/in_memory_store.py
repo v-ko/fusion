@@ -28,6 +28,7 @@ class InMemoryStore(Store):
         self._entity_cache.clear()
         self._entity_cache_by_parent.clear()
         self._entity_cache_by_type.clear()
+        self._loaded = False
 
     def type_cache_supported_subclass(self, entity: Entity) -> type[Entity] | None:
         if not self.types_for_cached_type_filtering:

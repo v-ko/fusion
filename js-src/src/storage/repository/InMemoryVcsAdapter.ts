@@ -9,7 +9,6 @@ const log = getLogger('InMemoryRepository')
 export class InMemoryVcsAdapter implements VcsAdapter {
     private _commitGraph: CommitGraph = new CommitGraph();
     private _commitById: Map<string, Commit> = new Map();
-    private _projectProperties: object | null = null;
 
     async getCommitGraph(): Promise<CommitGraph> {
         return CommitGraph.fromData(this._commitGraph.data());
@@ -83,14 +82,5 @@ export class InMemoryVcsAdapter implements VcsAdapter {
     async eraseStorage(): Promise<void> {
         this._commitGraph = new CommitGraph();
         this._commitById = new Map();
-        this._projectProperties = null;
-    }
-
-    async getProjectProperties(): Promise<object | null> {
-        return this._projectProperties;
-    }
-
-    async setProjectProperties(properties: object): Promise<void> {
-        this._projectProperties = properties;
     }
 }

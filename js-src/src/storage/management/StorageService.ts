@@ -54,13 +54,11 @@ export function deriveProjectUri(projectId: string, adapterName: string): string
 
 export interface StorageServiceActualInterface {
     loadProject: (projectId: string, repoManagerConfig: ProjectStorageConfig, projectUri?: string) => Promise<void>;
-    createProject: (projectId: string, projectStorageConfig: ProjectStorageConfig, projectProperties?: ProjectData) => Promise<string>;
+    createProject: (projectId: string, projectStorageConfig: ProjectStorageConfig) => Promise<string>;
     unloadProject: (projectId: string) => Promise<void>;
     removeProject: (projectId: string, projectStorageConfig: ProjectStorageConfig) => Promise<void>;
     getCommitGraph: (projectId: string) => Promise<CommitGraphData>;
     getCommits: (projectId: string, commitIds: string[]) => Promise<CommitData[]>;
-    getProjectProperties: (projectId: string) => Promise<ProjectData | null>;
-    setProjectProperties: (projectId: string, projectProperties: ProjectData) => Promise<void>;
 
     // Repo changes (mostly commits to the domain store as of now) can come from
     // different sources (the UI/FDS, remote storage sync adapters), so they operate
@@ -469,14 +467,8 @@ export class StorageService {
     async removeProject(projectId: string, projectStorageConfig: ProjectStorageConfig): Promise<void> {
         return this.runStorageCall('removeProject', `projectId=${projectId}`, () => this.service.removeProject(projectId, projectStorageConfig));
     }
-    async createProject(projectId: string, projectStorageConfig: ProjectStorageConfig, projectProperties?: ProjectData): Promise<string> {
-        return this.runStorageCall('createProject', `projectId=${projectId}`, () => this.service.createProject(projectId, projectStorageConfig, projectProperties));
-    }
-    async getProjectProperties(projectId: string): Promise<ProjectData | null> {
-        return this.runStorageCall('getProjectProperties', `projectId=${projectId}`, () => this.service.getProjectProperties(projectId));
-    }
-    async setProjectProperties(projectId: string, projectProperties: ProjectData): Promise<void> {
-        return this.runStorageCall('setProjectProperties', `projectId=${projectId}`, () => this.service.setProjectProperties(projectId, projectProperties));
+    async createProject(projectId: string, projectStorageConfig: ProjectStorageConfig): Promise<string> {
+        return this.runStorageCall('createProject', `projectId=${projectId}`, () => this.service.createProject(projectId, projectStorageConfig));
     }
     async _storageOperationRequest(request: StorageOperationRequest): Promise<StorageOperationResult> {
         const detail = 'projectId' in request
@@ -1012,14 +1004,14 @@ export class StorageServiceActual implements StorageServiceActualInterface {
         }
     }
 
-    async createProject(projectId: string, projectStorageConfig: ProjectStorageConfig, projectProperties?: ProjectData): Promise<string> {
+    async createProject(projectId: string, projectStorageConfig: ProjectStorageConfig): Promise<string> {
         let repoManager = this.repoManagers[projectId];
         if (repoManager) {
             throw new Error(`Project ${projectId} already exists.`);
         }
 
         repoManager = new ProjectStorageManager(projectStorageConfig, this);
-        await repoManager.createProject(projectProperties);
+        await repoManager.createProject();
 
         console.log(`[createProject] Created repo with head store ${JSON.stringify(repoManager._onDeviceRepo?.headStore)}`)
         // this.repoManagers[projectId] = repoManager;
@@ -1028,22 +1020,6 @@ export class StorageServiceActual implements StorageServiceActualInterface {
         this.repoRefCounts[projectId] = 0;
 
         return deriveProjectUri(projectId, projectStorageConfig.onDeviceVcsAdapter.name);
-    }
-
-    async getProjectProperties(projectId: string): Promise<ProjectData | null> {
-        const repoManager = this.repoManagers[projectId];
-        if (!repoManager) {
-            throw new Error(`Project ${projectId} is not loaded. Properties are only accessible for loaded projects.`);
-        }
-        return repoManager.getProjectProperties();
-    }
-
-    async setProjectProperties(projectId: string, projectProperties: ProjectData): Promise<void> {
-        const repoManager = this.repoManagers[projectId];
-        if (!repoManager) {
-            throw new Error(`Project ${projectId} is not loaded. Properties are only accessible for loaded projects.`);
-        }
-        await repoManager.setProjectProperties(projectProperties);
     }
 
     async removeProject(projectId: string, projectStorageConfig: ProjectStorageConfig): Promise<void> {

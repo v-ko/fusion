@@ -176,42 +176,4 @@ export class RestApiVcsAdapter implements VcsAdapter {
         // Read-only adapter does not own persistent storage.
     }
 
-    private _projectUrl(path: string): string {
-        return `${this._baseUrl}/desktop/projects/${encodeURIComponent(this._projectId)}${path}`;
-    }
-
-    async getProjectProperties(): Promise<object | null> {
-        const url = this._projectUrl('/properties');
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: this._headers(),
-        });
-        if (response.status === 404) {
-            return null;
-        }
-        if (!response.ok) {
-            throw new Error(
-                `Failed to load project properties (${response.status} ${response.statusText})`,
-            );
-        }
-        const payload = await response.json() as object | null;
-        return payload ?? null;
-    }
-
-    async setProjectProperties(properties: object): Promise<void> {
-        const url = this._projectUrl('/properties');
-        const response = await fetch(url, {
-            method: 'PUT',
-            headers: {
-                ...this._headers(),
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(properties),
-        });
-        if (!response.ok) {
-            throw new Error(
-                `Failed to save project properties (${response.status} ${response.statusText})`,
-            );
-        }
-    }
 }

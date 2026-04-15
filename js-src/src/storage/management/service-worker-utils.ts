@@ -18,8 +18,8 @@ function createLoggedStorageServiceBridge(storageService: StorageServiceActualIn
         loadProject: async (projectId, repoManagerConfig, projectUri) => {
             return logWorkerOperation('loadProject', `projectId=${projectId}`, () => storageService.loadProject(projectId, repoManagerConfig, projectUri));
         },
-        createProject: async (projectId, projectStorageConfig, projectProperties) => {
-            return logWorkerOperation('createProject', `projectId=${projectId}`, () => storageService.createProject(projectId, projectStorageConfig, projectProperties));
+        createProject: async (projectId, projectStorageConfig) => {
+            return logWorkerOperation('createProject', `projectId=${projectId}`, () => storageService.createProject(projectId, projectStorageConfig));
         },
         unloadProject: async (projectId) => {
             return logWorkerOperation('unloadProject', `projectId=${projectId}`, () => storageService.unloadProject(projectId));
@@ -32,12 +32,6 @@ function createLoggedStorageServiceBridge(storageService: StorageServiceActualIn
         },
         getCommits: async (projectId, commitIds) => {
             return logWorkerOperation('getCommits', `projectId=${projectId} commitCount=${commitIds.length}`, () => storageService.getCommits(projectId, commitIds));
-        },
-        getProjectProperties: async (projectId) => {
-            return logWorkerOperation('getProjectProperties', `projectId=${projectId}`, () => storageService.getProjectProperties(projectId));
-        },
-        setProjectProperties: async (projectId, projectProperties) => {
-            return logWorkerOperation('setProjectProperties', `projectId=${projectId}`, () => storageService.setProjectProperties(projectId, projectProperties));
         },
         _storageOperationRequest: async (request) => {
             const details = 'projectId' in request

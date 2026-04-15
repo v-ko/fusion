@@ -178,14 +178,6 @@ export class ProjectStorageManager {
         return this._domainStoreAdapter;
     }
 
-    async getProjectProperties(): Promise<ProjectData | null> {
-        return await this.onDeviceRepo.getProjectProperties() as ProjectData | null;
-    }
-
-    async setProjectProperties(projectProperties: ProjectData): Promise<void> {
-        await this.onDeviceRepo.setProjectProperties(projectProperties);
-    }
-
     // ---- Project lifecycle ----
 
     async loadProject(projectUri?: string) {
@@ -247,15 +239,12 @@ export class ProjectStorageManager {
         }
     }
 
-    async createProject(projectProperties?: ProjectData): Promise<void> {
+    async createProject(): Promise<void> {
         if (this._domainStoreAdapter) {
             throw new Error("Desktop project creation is not implemented yet. Folder selection and project initialization still need to be added.");
         }
         this._onDeviceRepo = await Repository.create(this.config.onDeviceVcsAdapter, true);
         this._localFileStore = await initFileStore(this.config.onDeviceFileStore);
-        if (projectProperties) {
-            await this.setProjectProperties(projectProperties);
-        }
     }
 
     async unloadProject(): Promise<void> {

@@ -21,7 +21,8 @@ export class IrrationalStorageOperation extends Error {
 }
 
 export abstract class Store {
-    onChanges: ((delta: Delta) => void) | null = null;
+    onChanges: ((delta: Delta, origin?: string) => void) | null = null;
+    protected _applyingInternally: boolean = false;
 
     abstract insertOne(entity: Entity<EntityData>): Change;
 
@@ -43,20 +44,19 @@ export abstract class Store {
     update(entities: Entity<EntityData>[]): Change[] {
         return entities.map(entity => this.updateOne(entity))
     }
-    /** Apply a single change, firing onChange. For bulk/internal use, see loadChange. */
-    applyChange(change: Change): Change {
-        return this._applyChangeCore(change);
-    }
-
-    /** Apply a single change without firing onChange (used by repos, hydration, etc). */
-    loadChange(change: Change): Change {
-        const saved = this.onChanges;
-        this.onChanges = null;
+    /** Apply a single change, firing onChanges with the given origin. */
+    applyChange(change: Change, origin?: string): Change {
+        this._applyingInternally = true;
+        let appliedChange: Change;
         try {
-            return this._applyChangeCore(change);
+            appliedChange = this._applyChangeCore(change);
         } finally {
-            this.onChanges = saved;
+            this._applyingInternally = false;
         }
+        if (this.onChanges && !appliedChange.isEmpty()) {
+            this.onChanges(Delta.fromChanges([appliedChange]), origin);
+        }
+        return appliedChange;
     }
 
     private _applyChangeCore(change: Change): Change {
@@ -84,38 +84,37 @@ export abstract class Store {
         const entities = Array.from(this.find({}));
         return { entities: entities.map(entity => dumpToDict(entity)) };
     }
-    loadData(data: SerializedStoreData): void {
-        const saved = this.onChanges;
-        this.onChanges = null;
+
+    abstract clear(): void;
+
+    protected _loaded: boolean = false;
+
+    /** Load initial data into an empty (or cleared) store. Can only be called once, or again after clear(). */
+    loadData(entities: Entity<EntityData>[], origin?: string): Delta {
+        if (this._loaded) {
+            throw new Error('Store already has data loaded. Call clear() before loading again.');
+        }
+        this._applyingInternally = true;
+        const changes: Change[] = [];
         try {
-            for (const entityData of data.entities) {
-                const entity = loadFromDict(entityData);
-                this.insertOne(entity);
+            for (const entity of entities) {
+                changes.push(this.insertOne(entity));
             }
         } finally {
-            this.onChanges = saved;
+            this._applyingInternally = false;
+            this._loaded = true;
         }
-    }
 
-    /** Apply a delta, firing onChange once at the end. For bulk/internal use, see loadDelta. */
-    applyDelta(delta: Delta, skipIrrationalOperations: boolean = false): Delta {
-        const appliedDelta = this._applyDeltaCore(delta, skipIrrationalOperations);
-
-        if (this.onChanges && !appliedDelta.isEmpty()) {
-            this.onChanges(appliedDelta);
+        const delta = Delta.fromChanges(changes);
+        if (this.onChanges && !delta.isEmpty()) {
+            this.onChanges(delta, origin);
         }
-        return appliedDelta;
+        return delta;
     }
 
-    /** Apply a delta without firing onChange (used by repos, hydration, reconciliation internals). */
-    loadDelta(delta: Delta, skipIrrationalOperations: boolean = false): Delta {
-        return this._applyDeltaCore(delta, skipIrrationalOperations);
-    }
-
-    private _applyDeltaCore(delta: Delta, skipIrrationalOperations: boolean): Delta {
-        // Suppress per-item onChange — callers (applyDelta/loadDelta) handle notification
-        const saved = this.onChanges;
-        this.onChanges = null;
+    /** Apply a delta, firing onChanges once at the end with the given origin. */
+    applyDelta(delta: Delta, origin?: string, skipIrrationalOperations: boolean = false): Delta {
+        this._applyingInternally = true;
 
         const appliedDelta = new Delta({});
         try {
@@ -130,7 +129,11 @@ export abstract class Store {
                 }
             }
         } finally {
-            this.onChanges = saved;
+            this._applyingInternally = false;
+        }
+
+        if (this.onChanges && !appliedDelta.isEmpty()) {
+            this.onChanges(appliedDelta, origin);
         }
         return appliedDelta;
     }

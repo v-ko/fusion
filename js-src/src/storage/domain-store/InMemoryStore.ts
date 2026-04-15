@@ -456,7 +456,7 @@ export class InMemoryStore extends Store {
         }
 
         const change = this.upsertToCache(entity, true);
-        if (this.onChanges) {
+        if (this.onChanges && !this._applyingInternally) {
             this.onChanges(Delta.fromChanges([change]));
         }
         return change;
@@ -464,7 +464,7 @@ export class InMemoryStore extends Store {
 
     updateOne(entity: Entity<EntityData>): Change {
         const change = this.upsertToCache(entity, false);
-        if (this.onChanges && !change.isEmpty()) {
+        if (this.onChanges && !this._applyingInternally && !change.isEmpty()) {
             this.onChanges(Delta.fromChanges([change]));
         }
         return change;
@@ -482,7 +482,7 @@ export class InMemoryStore extends Store {
 
         this.removeFromCache(oldEntity);
         const change = Change.delete(entity);
-        if (this.onChanges) {
+        if (this.onChanges && !this._applyingInternally) {
             this.onChanges(Delta.fromChanges([change]));
         }
         return change;
@@ -563,5 +563,6 @@ export class InMemoryStore extends Store {
         for (const index of indexes.values()) {
             index.clear();
         }
+        this._loaded = false;
     }
 }

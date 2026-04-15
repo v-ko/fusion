@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Type, TypeVar
+from typing import Type, TypeVar, dataclass_transform
 
 import attrs
 
@@ -36,6 +36,7 @@ def reset_entity_id_counter():
 T = TypeVar("T")
 
 
+@dataclass_transform()
 def entity_type(entity_class: Type[T], repr: bool = False) -> Type[T]:
     """A class decorator to register entities in the entity library for the
     purposes of serialization and deserialization. It applies attrs.define.
