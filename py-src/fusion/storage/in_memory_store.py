@@ -4,6 +4,7 @@ from typing import Any
 
 from fusion.libs.entity import Entity
 from fusion.libs.entity.change import Change
+from fusion.libs.entity.delta import Delta
 from fusion.storage.base_store import Store
 from fusion.util import find_many_by_props
 
@@ -71,10 +72,16 @@ class InMemoryStore(Store):
 
     def insert_one(self, entity: Entity) -> Change:
         if entity.id in self._entity_cache:
-            raise Exception("Cannot insert {entity}, since it already exists")
+            raise Exception(
+                f"Cannot insert entity with id={entity.id!r} ({type(entity).__name__}), "
+                f"since it already exists"
+            )
 
         self.upsert_to_cache(entity)
-        return Change.create(entity)
+        change = Change.create(entity)
+        if self.on_changes and not self._applying_internally:
+            self.on_changes(Delta.from_changes([change]), None)
+        return change
 
     def update_one(self, entity: Entity) -> Change:
         old_entity = self.pop_from_cache(entity.id)
@@ -82,14 +89,20 @@ class InMemoryStore(Store):
             raise Exception(f"Cannot update missing {entity}")
 
         self.upsert_to_cache(entity)
-        return Change.update(old_entity, entity)
+        change = Change.update(old_entity, entity)
+        if self.on_changes and not self._applying_internally and not change.is_empty():
+            self.on_changes(Delta.from_changes([change]), None)
+        return change
 
     def remove_one(self, entity: Entity) -> Change:
         old_entity = self.pop_from_cache(entity.id)
         if not old_entity:
             raise Exception(f"Cannot remove missing {entity}")
 
-        return Change.delete(old_entity)
+        change = Change.delete(old_entity)
+        if self.on_changes and not self._applying_internally:
+            self.on_changes(Delta.from_changes([change]), None)
+        return change
 
     def find(
         self,

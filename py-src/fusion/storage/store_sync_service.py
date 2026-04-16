@@ -8,7 +8,7 @@ The consumer wires this by chaining ``on_store_changes`` into the
 store's ``on_changes`` callback.
 
 This is the server-side counterpart to the TypeScript
-``RestStoreSyncClient`` in ``fusion/js-src/src/storage/sync/``.
+``RestStoreSyncService`` in ``fusion/js-src/src/storage/sync/``.
 """
 
 from __future__ import annotations

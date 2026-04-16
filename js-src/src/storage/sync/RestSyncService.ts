@@ -2,11 +2,11 @@ import { getLogger } from "../../logging";
 import { Delta } from "../../model/Delta";
 import { SerializedEntityData, loadFromDict } from "../../model/Entity";
 import { InMemoryStore } from "../domain-store/InMemoryStore";
-import { StoreSyncClient } from "./StoreSyncClient";
+import { StoreSyncService } from "./StoreSyncService";
 
-const log = getLogger('RestStoreSyncClient');
+const log = getLogger('RestSyncLink');
 
-export interface RestStoreSyncClientConfig {
+export interface RestSyncLinkConfig {
     /** Base URL for the store-sync endpoint, e.g. "http://localhost:8000/config/store" */
     endpoint: string;
     /** Optional headers to include in every request (e.g. auth) */
@@ -18,7 +18,7 @@ interface FullStateResponse {
     entities: SerializedEntityData[];
 }
 
-export class RestStoreSyncClient implements StoreSyncClient {
+export class RestSyncService implements StoreSyncService {
     private _store: InMemoryStore | null = null;
     private _endpoint: string;
     private _headers: (() => HeadersInit) | undefined;
@@ -27,7 +27,7 @@ export class RestStoreSyncClient implements StoreSyncClient {
     private _abortController: AbortController = new AbortController();
     private _disposed: boolean = false;
 
-    constructor(config: RestStoreSyncClientConfig) {
+    constructor(config: RestSyncLinkConfig) {
         this._endpoint = config.endpoint;
         this._headers = config.headers;
     }
@@ -38,7 +38,7 @@ export class RestStoreSyncClient implements StoreSyncClient {
 
     private get store(): InMemoryStore {
         if (!this._store) {
-            throw new Error('Store not set. Call setStore() before using RestStoreSyncClient.');
+            throw new Error('Store not set. Call setStore() before using RestSyncLink.');
         }
         return this._store;
     }
@@ -63,7 +63,7 @@ export class RestStoreSyncClient implements StoreSyncClient {
             cache: 'no-store',
         });
         if (!response.ok) {
-            throw new Error(`RestStoreSyncClient: GET ${this._endpoint} failed (${response.status})`);
+            throw new Error(`RestSyncLink: GET ${this._endpoint} failed (${response.status})`);
         }
         const data = await response.json() as FullStateResponse;
         this._seq = data.seq;
@@ -82,7 +82,7 @@ export class RestStoreSyncClient implements StoreSyncClient {
         });
 
         if (!response.ok) {
-            log.error(`RestStoreSyncClient: POST ${this._endpoint}/changes failed (${response.status})`);
+            log.error(`RestSyncLink: POST ${this._endpoint}/changes failed (${response.status})`);
             return;
         }
 
@@ -98,7 +98,7 @@ export class RestStoreSyncClient implements StoreSyncClient {
                 await this._streamOnce();
             } catch (e) {
                 if (this._disposed) break;
-                log.error('RestStoreSyncClient: stream error:', e);
+                log.error('RestSyncLink: stream error:', e);
                 await new Promise(r => setTimeout(r, 1000));
             }
         }
@@ -138,7 +138,7 @@ export class RestStoreSyncClient implements StoreSyncClient {
                     const event = this._parseSSEEvent(part);
 
                     if (event.type === 'stale') {
-                        log.info('RestStoreSyncClient: stale, doing full reload');
+                        log.info('RestSyncLink: stale, doing full reload');
                         await this._fullLoad();
                         return; // Reconnect with new _seq
                     }
