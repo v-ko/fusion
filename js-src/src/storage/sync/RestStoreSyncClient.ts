@@ -1,5 +1,4 @@
 import { getLogger } from "../../logging";
-import { ChangeData } from "../../model/Change";
 import { Delta } from "../../model/Delta";
 import { SerializedEntityData, loadFromDict } from "../../model/Entity";
 import { InMemoryStore } from "../domain-store/InMemoryStore";
@@ -76,15 +75,10 @@ export class RestStoreSyncClient implements StoreSyncClient {
     }
 
     async pushDelta(delta: Delta): Promise<void> {
-        const serializedChanges: any[] = [];
-        for (const change of delta.changes()) {
-            serializedChanges.push(change.data);
-        }
-
         const response = await fetch(`${this._endpoint}/changes`, {
             method: 'POST',
             headers: this._buildHeaders(),
-            body: JSON.stringify({ changes: serializedChanges }),
+            body: JSON.stringify({ delta: delta.data }),
         });
 
         if (!response.ok) {
@@ -157,8 +151,11 @@ export class RestStoreSyncClient implements StoreSyncClient {
                         this._ownSeqs.delete(seq);
                     } else {
                         const parsed = JSON.parse(event.data);
-                        if (parsed.changes) {
-                            this._applyRemoteDeltas([parsed.changes]);
+                        if (parsed.delta) {
+                            const remoteDelta = new Delta(parsed.delta);
+                            if (Object.keys(remoteDelta.data).length > 0) {
+                                this.store.applyDelta(remoteDelta, 'remote', true);
+                            }
                         }
                     }
                     this._seq = seq;
@@ -181,17 +178,7 @@ export class RestStoreSyncClient implements StoreSyncClient {
         return { type, id, data };
     }
 
-    private _applyRemoteDeltas(deltas: ChangeData[][]): void {
-        for (const deltaChanges of deltas) {
-            const delta = new Delta({});
-            for (const changeData of deltaChanges) {
-                delta.addChangeFromData(changeData);
-            }
-            if (Object.keys(delta.data).length > 0) {
-                this.store.applyDelta(delta, 'remote', true);
-            }
-        }
-    }
+
 
     dispose(): void {
         this._disposed = true;
