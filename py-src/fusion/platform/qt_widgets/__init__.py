@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Any, Callable, Generic, Optional, TypeVar
 from PySide6.QtCore import Property as _QtProperty, QObject
 
 from fusion import set_main_loop
-from fusion.libs.entity.change import Change
+from fusion.storage.change import Change
 
 if TYPE_CHECKING:  # pragma: no cover - typing aid
     T = TypeVar("T")

@@ -2,10 +2,10 @@ from collections import defaultdict
 from collections.abc import Generator, Iterable
 from typing import Any
 
-from fusion.libs.entity import Entity
-from fusion.libs.entity.change import Change
-from fusion.libs.entity.delta import Delta
+from fusion.libs.model import Entity
 from fusion.storage.base_store import Store
+from fusion.storage.change import Change
+from fusion.storage.delta import Delta
 from fusion.util import find_many_by_props
 
 

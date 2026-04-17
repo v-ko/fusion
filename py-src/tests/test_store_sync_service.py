@@ -3,8 +3,8 @@
 import asyncio
 
 from fusion import Entity, entity_type
-from fusion.libs.entity.change import Change
-from fusion.libs.entity.delta import Delta
+from fusion.storage.change import Change
+from fusion.storage.delta import Delta
 from fusion.storage.in_memory_store import InMemoryStore
 from fusion.storage.store_sync_service import STALE, StoreSyncService
 

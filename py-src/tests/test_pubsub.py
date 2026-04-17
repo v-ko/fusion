@@ -1,6 +1,6 @@
 import fusion
 from fusion.libs.channel import Channel
-from fusion.libs.entity import Entity, entity_type
+from fusion.libs.model import Entity, entity_type
 from fusion.loop import NoMainLoop
 
 

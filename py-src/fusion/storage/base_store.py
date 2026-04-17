@@ -2,9 +2,9 @@ from collections.abc import Callable, Generator
 from typing import Any
 
 from fusion import Entity
-from fusion.libs.entity import load_from_dict, transformed_entity
-from fusion.libs.entity.change import Change
-from fusion.libs.entity.delta import Delta
+from fusion.libs.model import load_from_dict, transformed_entity
+from fusion.storage.change import Change
+from fusion.storage.delta import Delta
 
 
 class Store:

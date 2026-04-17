@@ -177,7 +177,7 @@ class Entity:
         """Compute a Change between self (old) and other (new).
         Granularity: level-1 entity properties. If a level-1 key's value
         has changed, the whole key is included in the delta."""
-        from fusion.libs.entity.change import Change
+        from fusion.storage.change import Change
 
         if self.id != other.id:
             raise ValueError("Cannot create change from entities with different IDs")
@@ -204,7 +204,7 @@ class Entity:
 def transformed_entity(entity: Entity, change) -> Entity:
     """Apply a Change's forward component to an entity, producing a new entity.
     Only works with UPDATE changes."""
-    from fusion.libs.entity.change import ChangeTypes
+    from fusion.storage.change import ChangeTypes
 
     if entity.id != change.entity_id:
         raise ValueError("Cannot apply change from a different entity")

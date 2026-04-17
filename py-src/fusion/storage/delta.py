@@ -4,7 +4,7 @@ from copy import deepcopy
 from typing import Any, Generator
 
 from fusion import get_logger
-from fusion.libs.entity.change import Change, ChangeTypes
+from fusion.storage.change import Change, ChangeTypes
 
 log = get_logger(__name__)
 

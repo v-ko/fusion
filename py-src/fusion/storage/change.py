@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Any
 
 from fusion import get_logger
-from fusion.libs.entity import Entity, dump_to_dict
+from fusion.libs.model import Entity, dump_to_dict
 
 log = get_logger(__name__)
 
