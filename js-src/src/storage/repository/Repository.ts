@@ -168,12 +168,14 @@ export class Repository {
                 repo.headStore.insertOne(entity);
             }
             log.info(`Populated headStore from provided data: ${headStoreData.length} entities`);
+            repo._hashTree = await buildHashTree(repo.headStore);
         } else {
-            // Hydrate from VCS adapter (replay deltas)
+            // Initialize an empty hash tree before hydration so
+            // _applyInternalUpdateToCache can update it incrementally.
+            repo._hashTree = await buildHashTree(repo.headStore);
             await repo.hydrateCacheFromVcsAdapter();
         }
 
-        repo._hashTree = await buildHashTree(repo.headStore);
         log.info(`Repository opened with caching enabled. Using VCS adapter: ${config.name}`);
         return repo;
     }
