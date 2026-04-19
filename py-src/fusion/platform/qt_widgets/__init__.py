@@ -1,9 +1,6 @@
-from typing import TYPE_CHECKING, Any, Callable, Generic, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Generic, TypeVar
 
-from PySide6.QtCore import Property as _QtProperty, QObject
-
-from fusion import set_main_loop
-from fusion.storage.change import Change
+from PySide6.QtCore import Property as _QtProperty
 
 if TYPE_CHECKING:  # pragma: no cover - typing aid
     T = TypeVar("T")
@@ -39,9 +36,3 @@ if TYPE_CHECKING:  # pragma: no cover - typing aid
 
 else:
     Property = _QtProperty
-
-
-def configure_for_qt(app):
-    from fusion.platform.qt_widgets.qt_main_loop import QtMainLoop
-
-    set_main_loop(QtMainLoop(app))
