@@ -21,11 +21,11 @@ describe('Channel (local backend)', () => {
     expect(h).toHaveBeenCalledTimes(1);
   });
 
-  test('filterKey (set after creation) prevents delivery', async () => {
+  test('subchannelClassifier (set after creation) prevents delivery', async () => {
     const ch = addChannel('test-filter-late');
     const h: jest.MockedFunction<HandlerFunction> = jest.fn();
 
-    ch.filterKey = () => false; // reject everything
+    ch.subchannelClassifier = () => false; // reject everything
     ch.subscribe(h);
     ch.push('blocked');
 
@@ -33,8 +33,8 @@ describe('Channel (local backend)', () => {
     expect(h).not.toHaveBeenCalled();
   });
 
-  test('filterKey (provided at creation) gates messages', async () => {
-    const ch = addChannel('test-filter-init', { filterKey: (m: any) => m?.pass === true });
+  test('subchannelClassifier (provided at creation) gates messages', async () => {
+    const ch = addChannel('test-filter-init', { subchannelClassifier: (m: any) => m?.pass === true });
     const h: jest.MockedFunction<HandlerFunction> = jest.fn();
 
     ch.subscribe(h);
@@ -50,7 +50,7 @@ describe('Channel (local backend)', () => {
   });
 
   test('indexed subscriptions receive only matching messages', async () => {
-    const ch = addChannel('test-indexed', { indexKey: (m: any) => m?.index ?? null });
+    const ch = addChannel('test-indexed', { subchannel: (m: any) => m?.index ?? null });
 
     const h1: jest.MockedFunction<HandlerFunction> = jest.fn();
     const h2: jest.MockedFunction<HandlerFunction> = jest.fn();
