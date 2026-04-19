@@ -1,12 +1,8 @@
-from typing import Callable, List
-
-import pamet
+from typing import Callable
 
 import fusion
 
 log = fusion.get_logger(__name__)
-
-_commands = {}
 
 
 class Command:
@@ -21,29 +17,26 @@ class Command:
 
     def __call__(self, **context):
         log.info(f"COMMAND triggered: {self}")
-        try:
-            self.function(**context)
-        except Exception as e:
-            title = f'Exception raised during command "{self.name}"'
-            pamet.desktop_app.get_app().present_exception(exception=e, title=title)
+        self.function(**context)
 
-        return
+
+_commands: dict[str, Command] = {}
 
 
 def command(title: str, name: str = ""):
 
     def decorator(function: Callable):
-        if not name:
-            fname = function.__name__
-        else:
-            fname = name
-
-        _command = Command(function, title, fname)
-        _commands[function] = _command
+        cmd_name = name or function.__name__
+        _command = Command(function, title, cmd_name)
+        _commands[cmd_name] = _command
         return _command
 
     return decorator
 
 
-def commands() -> List[Command]:
-    yield from _commands.values()
+def get_commands() -> list[Command]:
+    return list(_commands.values())
+
+
+def get_command(name: str) -> Command | None:
+    return _commands.get(name)
