@@ -96,8 +96,8 @@ export class Point2D extends Vector2D {
     const adjustedY = this._data[1] - origin._data[1];
     const cosRad = Math.cos(radians);
     const sinRad = Math.sin(radians);
-    const qx = origin._data[0] + cosRad * adjustedX + sinRad * adjustedY;
-    const qy = origin._data[1] - sinRad * adjustedX + cosRad * adjustedY;
+    const qx = origin._data[0] + cosRad * adjustedX - sinRad * adjustedY;
+    const qy = origin._data[1] + sinRad * adjustedX + cosRad * adjustedY;
     return new Point2D([qx, qy]);
   }
 }

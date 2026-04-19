@@ -58,7 +58,7 @@ class Point2D:
         adjusted_y = self.y() - origin.y()
         cos_rad = math.cos(radians)
         sin_rad = math.sin(radians)
-        qx = origin.x() + cos_rad * adjusted_x + sin_rad * adjusted_y
-        qy = origin.y() + -sin_rad * adjusted_x + cos_rad * adjusted_y
+        qx = origin.x() + cos_rad * adjusted_x - sin_rad * adjusted_y
+        qy = origin.y() + sin_rad * adjusted_x + cos_rad * adjusted_y
 
         return Point2D(qx, qy)
