@@ -1,15 +1,18 @@
-import { FileItemData, FileItemMetadata } from "../../model/FileItem";
+export interface AddFileResult {
+  hash: string;
+  path: string;
+}
 
-export class FileItemExistsInPathError extends Error {
+export class FileExistsInPathError extends Error {
   constructor(path: string) {
-    super(`File item already exists at path: ${path}`);
-    this.name = 'FileItemExistsInPathError';
+    super(`File already exists at path: ${path}`);
+    this.name = 'FileExistsInPathError';
   }
 }
 
 export interface FileStoreAdapter {
-  addFile: (blob: Blob, path: string, parentId: string, metadata: FileItemMetadata) => Promise<FileItemData>;
-  getFile: (fileItemId: string, contentHash: string) => Promise<Blob>;
-  removeFile: (fileItemId: string, contentHash: string) => Promise<void>;
+  addFile: (blob: Blob, path: string) => Promise<AddFileResult>;
+  getFile: (path: string) => Promise<Blob>;
+  removeFile: (path: string) => Promise<void>;
   eraseStorage: () => Promise<void>;
 }

@@ -3,7 +3,7 @@ import { ProjectStorageManager, ProjectStorageConfig, StorageAddon } from './Pro
 import { Delta, DeltaData } from '../../model/Delta';
 import { RepoUpdateData } from "../repository/Repository"
 import { createId } from '../../util/base';
-import { FileItemData, FileItemMetadata } from '../../model/FileItem';
+import { AddFileResult } from '../file-store/FileStoreAdapter';
 import { generateUniquePathWithSuffix } from "../../util/secondary";
 import { getLogger } from '../../logging';
 import { addChannel, Channel, getChannel, Subscription } from '../../registries/Channel';
@@ -18,8 +18,7 @@ const SQUASH_TTL_MS = 15 * 60 * 1000 // TODO: Should be passed as a parameter
 
 export interface FileRequest {
     projectId: string;
-    fileItemId: string;
-    fileItemContentHash?: string;
+    filePath: string;
 }
 
 export interface ProjectData {
@@ -68,9 +67,9 @@ export interface StorageServiceActualInterface {
     _storageOperationRequest: (request: StorageOperationRequest) => Promise<StorageOperationResult>;
 
     // File operations
-    addFile: (projectId: string, blob: Blob, path: string, parentId: string, metadata: FileItemMetadata) => Promise<FileItemData>;
-    getFile: (projectId: string, fileId: string, fileHash: string) => Promise<Blob>;
-    removeFile: (projectId: string, fileId: string, fileHash: string) => Promise<void>;
+    addFile: (projectId: string, blob: Blob, path: string) => Promise<AddFileResult>;
+    getFile: (projectId: string, path: string) => Promise<Blob>;
+    removeFile: (projectId: string, path: string) => Promise<void>;
 
     test(): boolean;
     disconnect: () => void;
@@ -490,16 +489,16 @@ export class StorageService {
     }
 
     // File operations
-    async addFile(projectId: string, blob: Blob, path: string, parentId: string, metadata: FileItemMetadata): Promise<FileItemData> {
-        return this.runStorageCall('addFile', `projectId=${projectId} path=${path} parentId=${parentId} size=${blob.size}`, () => this.service.addFile(projectId, blob, path, parentId, metadata));
+    async addFile(projectId: string, blob: Blob, path: string): Promise<AddFileResult> {
+        return this.runStorageCall('addFile', `projectId=${projectId} path=${path} size=${blob.size}`, () => this.service.addFile(projectId, blob, path));
     }
 
-    async getFile(projectId: string, fileId: string, fileHash: string): Promise<Blob> {
-        return this.runStorageCall('getFile', `projectId=${projectId} fileId=${fileId} hash=${fileHash}`, () => this.service.getFile(projectId, fileId, fileHash));
+    async getFile(projectId: string, path: string): Promise<Blob> {
+        return this.runStorageCall('getFile', `projectId=${projectId} path=${path}`, () => this.service.getFile(projectId, path));
     }
 
-    async removeFile(projectId: string, fileId: string, fileHash: string): Promise<void> {
-        return this.runStorageCall('removeFile', `projectId=${projectId} fileId=${fileId} hash=${fileHash}`, () => this.service.removeFile(projectId, fileId, fileHash));
+    async removeFile(projectId: string, path: string): Promise<void> {
+        return this.runStorageCall('removeFile', `projectId=${projectId} path=${path}`, () => this.service.removeFile(projectId, path));
     }
 
     async test() {
@@ -828,7 +827,7 @@ export class StorageServiceActual implements StorageServiceActualInterface {
     private fileRequestParser?: FileRequestParser;
 
     // Runtime tracking for files created via addFile during this session.
-    // Keys are `${fileId}#${contentHash}`.
+    // Keys are file paths.
     private _createdFilesThisSession: Set<string> = new Set();
 
     // Addon descriptors
@@ -901,7 +900,7 @@ export class StorageServiceActual implements StorageServiceActualInterface {
     async handleFileRequest(request: Request, fileRequest: FileRequest): Promise<Response> {
         log.info(`Handling file request for URL: ${request.url}`, fileRequest);
         try {
-            if (!fileRequest.fileItemId || !fileRequest.projectId) {
+            if (!fileRequest.filePath || !fileRequest.projectId) {
                 log.warning(`Invalid file URL format: ${request.url}`);
                 return new Response('Invalid file URL format', {
                     status: 400,
@@ -920,17 +919,9 @@ export class StorageServiceActual implements StorageServiceActualInterface {
                     headers: { 'Content-Type': 'text/plain' }
                 });
             }
-            if (fileRequest.fileItemContentHash === undefined) {
-                log.warning(`File item content hash is required: ${request.url}`);
-                return new Response('File item content hash is required', {
-                    status: 400,
-                    statusText: 'Bad Request',
-                    headers: { 'Content-Type': 'text/plain' }
-                });
-            }
 
-            const blob = await repoManager.fileStore.getFile(fileRequest.fileItemId, fileRequest.fileItemContentHash);
-            log.info(`Serving file from storage: ${fileRequest.fileItemId}, hash: ${fileRequest.fileItemContentHash}`);
+            const blob = await repoManager.fileStore.getFile(fileRequest.filePath);
+            log.info(`Serving file from storage: ${fileRequest.filePath}`);
             return new Response(blob, {
                 headers: {
                     'Content-Type': blob.type,
@@ -1190,7 +1181,7 @@ export class StorageServiceActual implements StorageServiceActualInterface {
     }
 
     // File operations
-    async addFile(projectId: string, blob: Blob, path: string, parentId: string, metadata: FileItemMetadata): Promise<FileItemData> {
+    async addFile(projectId: string, blob: Blob, path: string): Promise<AddFileResult> {
         let repoManager = this.repoManagers[projectId];
         if (!repoManager) {
             throw new Error("Repo not loaded");
@@ -1203,33 +1194,32 @@ export class StorageServiceActual implements StorageServiceActualInterface {
         });
 
         log.info(`Adding file to project ${projectId} with unique path: ${uniquePath}`);
-        const fileItemData = await repoManager.fileStore.addFile(blob, uniquePath, parentId, metadata);
+        const result = await repoManager.fileStore.addFile(blob, uniquePath);
 
         // Mark created in this session to skip restore logic during commit processing
-        const key = `${fileItemData.id}#${fileItemData.content.hash}`;
-        this._createdFilesThisSession.add(key);
+        this._createdFilesThisSession.add(result.path);
 
-        return fileItemData;
+        return result;
     }
 
-    async getFile(projectId: string, fileId: string, fileHash: string): Promise<Blob> {
+    async getFile(projectId: string, path: string): Promise<Blob> {
         let repoManager = this.repoManagers[projectId];
         if (!repoManager) {
             throw new Error("Repo not loaded");
         }
-        return repoManager.fileStore.getFile(fileId, fileHash);
+        return repoManager.fileStore.getFile(path);
     }
 
-    async removeFile(projectId: string, fileId: string, fileHash: string): Promise<void> {
+    async removeFile(projectId: string, path: string): Promise<void> {
         let repoManager = this.repoManagers[projectId];
         if (!repoManager) {
             throw new Error("Repo not loaded");
         }
 
-        await repoManager.fileStore.removeFile(fileId, fileHash);
+        await repoManager.fileStore.removeFile(path);
 
         // Unset runtime-created mark when removed explicitly
-        this._createdFilesThisSession.delete(`${fileId}#${fileHash}`);
+        this._createdFilesThisSession.delete(path);
     }
 
     disconnect() {

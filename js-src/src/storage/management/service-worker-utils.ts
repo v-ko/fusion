@@ -39,14 +39,14 @@ function createLoggedStorageServiceBridge(storageService: StorageServiceActualIn
                 : `type=${request.type}`;
             return logWorkerOperation('_storageOperationRequest', details, () => storageService._storageOperationRequest(request));
         },
-        addFile: async (projectId, blob, path, parentId, metadata) => {
-            return logWorkerOperation('addFile', `projectId=${projectId} path=${path} parentId=${parentId} size=${blob.size}`, () => storageService.addFile(projectId, blob, path, parentId, metadata));
+        addFile: async (projectId, blob, path) => {
+            return logWorkerOperation('addFile', `projectId=${projectId} path=${path} size=${blob.size}`, () => storageService.addFile(projectId, blob, path));
         },
-        getFile: async (projectId, fileId, fileHash) => {
-            return logWorkerOperation('getFile', `projectId=${projectId} fileId=${fileId} hash=${fileHash}`, () => storageService.getFile(projectId, fileId, fileHash));
+        getFile: async (projectId, path) => {
+            return logWorkerOperation('getFile', `projectId=${projectId} path=${path}`, () => storageService.getFile(projectId, path));
         },
-        removeFile: async (projectId, fileId, fileHash) => {
-            return logWorkerOperation('removeFile', `projectId=${projectId} fileId=${fileId} hash=${fileHash}`, () => storageService.removeFile(projectId, fileId, fileHash));
+        removeFile: async (projectId, path) => {
+            return logWorkerOperation('removeFile', `projectId=${projectId} path=${path}`, () => storageService.removeFile(projectId, path));
         },
         test: () => {
             return storageService.test();

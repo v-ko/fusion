@@ -1,7 +1,6 @@
-import { FileStoreAdapter } from "./FileStoreAdapter";
+import { FileStoreAdapter, AddFileResult } from "./FileStoreAdapter";
 import { generateContentHash } from "../../util/media";
 import { getLogger } from "../../logging";
-import { FileItem, FileItemData, FileItemMetadata } from "../../model/FileItem";
 
 const log = getLogger('CacheFileStoreAdapter');
 
@@ -19,9 +18,6 @@ export class CacheFileStoreAdapter implements FileStoreAdapter {
     try {
       this._cache = await caches.open(this._cacheName);
       log.info(`Opened Cache API store: ${this._cacheName}`);
-
-      // // Set up fetch interception for file requests
-      // this.setupFetchInterception();
     } catch (error) {
       log.error('Failed to initialize Cache API:', error);
       throw new Error(`Failed to initialize CacheFileStoreAdapter: ${error}`);
@@ -35,66 +31,47 @@ export class CacheFileStoreAdapter implements FileStoreAdapter {
     return this._cache;
   }
 
-  private _getCacheKey(id: string, contentHash: string): string {
-    // Create relative cache key: files/{id}#{contentHash}
-    return `files/${id}#${contentHash}`;
+  private _getCacheKey(path: string): string {
+    return `files/${path}`;
   }
 
-  async addFile(blob: Blob, path: string, parentId: string, metadata: FileItemMetadata): Promise<FileItemData> {
+  async addFile(blob: Blob, path: string): Promise<AddFileResult> {
     log.info(`Adding file to cache: ${path} (${blob.type}, ${blob.size} bytes)`);
-    // Generate content hash first
-    const contentHash = (await generateContentHash(blob)).slice(0, 32); // Cut down the sha-256 hash to 32 characters
+    const hash = (await generateContentHash(blob)).slice(0, 32);
+    const cacheKey = this._getCacheKey(path);
 
-    // Create the FileItem
-    const fileItem = FileItem.create({
-      path: path, // Store relative path (e.g. "images/photo.jpg")
-      content: { hash: contentHash },
-      parent_id: parentId,
-      metadata: metadata
-    });
-
-    // Create the cache key using FileItem ID
-    const cacheKey = this._getCacheKey(fileItem.id, contentHash);
-
-    // Store the blob in the Cache API using the cache key
     const response = new Response(blob.slice(), {
       headers: {
         'Content-Type': blob.type,
         'Content-Length': blob.size.toString(),
-        'X-Content-Hash': contentHash, // Store hash in header for reference
+        'X-Content-Hash': hash,
       }
     });
 
     await this.cache.put(cacheKey, response);
     log.info(`Added file to cache: ${cacheKey}`);
 
-    return fileItem.data(); // Return the data instead of the ImageItem instance
+    return { hash, path };
   }
 
-  async getFile(fileItemId: string, contentHash: string): Promise<Blob> {
-    // Create cache key from fileItemId and contentHash
-    const cacheKey = this._getCacheKey(fileItemId, contentHash);
-
+  async getFile(path: string): Promise<Blob> {
+    const cacheKey = this._getCacheKey(path);
     const response = await this.cache.match(cacheKey);
-
     if (!response) {
       throw new Error(`File not found in cache: ${cacheKey}`);
     }
-
     return await response.blob();
   }
 
-  async removeFile(fileItemId: string, contentHash: string): Promise<void> {
-    const cacheKey = this._getCacheKey(fileItemId, contentHash);
+  async removeFile(path: string): Promise<void> {
+    const cacheKey = this._getCacheKey(path);
     const deleted = await this.cache.delete(cacheKey);
-
     if (deleted) {
       log.info(`Removed file from cache: ${cacheKey}`);
     } else {
       log.warning(`File not found for deletion: ${cacheKey}`);
     }
   }
-
 
   async eraseStorage(): Promise<void> {
     log.info(`Erasing CacheAPI storage: ${this._cacheName}`);
@@ -104,7 +81,6 @@ export class CacheFileStoreAdapter implements FileStoreAdapter {
   }
 
   async close(): Promise<void> {
-    // Cache API doesn't need explicit closing
     this._cache = null;
     log.info(`Closed CacheFileStoreAdapter: ${this._cacheName}`);
   }

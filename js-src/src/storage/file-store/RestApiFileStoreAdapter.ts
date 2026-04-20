@@ -1,6 +1,4 @@
-import { FileStoreAdapter } from "./FileStoreAdapter";
-import { generateContentHash } from "../../util/media";
-import { FileItem, FileItemData, FileItemMetadata } from "../../model/FileItem";
+import { FileStoreAdapter, AddFileResult } from "./FileStoreAdapter";
 import { buildRestApiAuthHeaders, RestApiAuthConfig } from "../rest-api/Auth";
 
 export class RestApiFileStoreAdapter implements FileStoreAdapter {
@@ -23,52 +21,43 @@ export class RestApiFileStoreAdapter implements FileStoreAdapter {
     return buildRestApiAuthHeaders(this._auth);
   }
 
-  async addFile(blob: Blob, path: string, parentId: string, metadata: FileItemMetadata): Promise<FileItemData> {
-    // Compute metadata on the client so we can create the FileItem locally
-    const contentHash = (await generateContentHash(blob)).slice(0, 32);
-
-    const fileItem = FileItem.create({
-      path,
-      content: { hash: contentHash },
-      parent_id: parentId,
-      metadata: metadata
-    });
-
-    // Upload blob to desktop server under file item id
+  async addFile(blob: Blob, path: string): Promise<AddFileResult> {
     const form = new FormData();
-    form.append('content_hash', contentHash);
-    form.append('path', path);
-    // Use original filename from path if available
-    const filename = path.split(/[\\/]/).pop() || `${fileItem.id}`;
+    const filename = path.split(/[\\/]/).pop() || 'file';
     form.append('file', blob, filename);
 
-    const url = this._url(`/files/${encodeURIComponent(fileItem.id)}`);
+    // Encode path segments individually for the URL
+    const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+    const url = this._url(`/files/${encodedPath}`);
     const response = await fetch(url, {
       method: 'POST',
       body: form,
       headers: this._headers(),
     });
     if (!response.ok) {
-      throw new Error(`Failed to upload file item: ${response.status} ${response.statusText}`);
+      throw new Error(`Failed to upload file: ${response.status} ${response.statusText}`);
     }
 
-    return fileItem.data();
+    const result = await response.json();
+    return { hash: result.hash, path: result.path };
   }
 
-  async getFile(fileItemId: string, contentHash: string): Promise<Blob> {
-    const url = this._url(`/files/${encodeURIComponent(fileItemId)}/content`);
+  async getFile(path: string): Promise<Blob> {
+    const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+    const url = this._url(`/files/${encodedPath}`);
     const response = await fetch(url, { headers: this._headers(), cache: 'no-store' });
     if (!response.ok) {
-      throw new Error(`Failed to fetch file item: ${response.status} ${response.statusText}`);
+      throw new Error(`Failed to fetch file: ${response.status} ${response.statusText}`);
     }
     return await response.blob();
   }
 
-  async removeFile(fileItemId: string, contentHash: string): Promise<void> {
-    const url = this._url(`/files/${encodeURIComponent(fileItemId)}`);
+  async removeFile(path: string): Promise<void> {
+    const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+    const url = this._url(`/files/${encodedPath}`);
     const response = await fetch(url, { method: 'DELETE', headers: this._headers() });
     if (!response.ok) {
-      throw new Error(`Failed to remove file item: ${response.status} ${response.statusText}`);
+      throw new Error(`Failed to remove file: ${response.status} ${response.statusText}`);
     }
   }
 

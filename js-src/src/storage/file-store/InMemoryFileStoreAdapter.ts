@@ -1,53 +1,35 @@
 import { getLogger } from "../../logging";
-import { FileStoreAdapter } from "./FileStoreAdapter";
+import { FileStoreAdapter, AddFileResult } from "./FileStoreAdapter";
 import { generateContentHash } from "../../util/media";
-import { FileItem, FileItemData, FileItemMetadata } from "../../model/FileItem";
 
 const log = getLogger('InMemoryFileStoreAdapter');
 
 export class InMemoryFileStoreAdapter implements FileStoreAdapter {
     private _files: Map<string, Blob> = new Map();
 
-    private _getStorageKey(id: string, contentHash: string): string {
-        return `${id}#${contentHash}`;
-    }
-
-    async addFile(blob: Blob, path: string, parentId: string, metadata: FileItemMetadata): Promise<FileItemData> {
+    async addFile(blob: Blob, path: string): Promise<AddFileResult> {
         log.info(`Adding file to in-memory store: ${path} (${blob.type}, ${blob.size} bytes)`);
-        const contentHash = (await generateContentHash(blob)).slice(0, 32);
-
-        const fileItem = FileItem.create({
-            path: path,
-            content: { hash: contentHash },
-            parent_id: parentId,
-            metadata: metadata
-        });
-
-        const storageKey = this._getStorageKey(fileItem.id, contentHash);
-        this._files.set(storageKey, blob);
-        log.info(`Added file to in-memory store: ${storageKey}`);
-
-        return fileItem.data();
+        const hash = (await generateContentHash(blob)).slice(0, 32);
+        this._files.set(path, blob);
+        log.info(`Added file to in-memory store: ${path}`);
+        return { hash, path };
     }
 
-    async getFile(fileItemId: string, contentHash: string): Promise<Blob> {
-        const storageKey = this._getStorageKey(fileItemId, contentHash);
-        const blob = this._files.get(storageKey);
+    async getFile(path: string): Promise<Blob> {
+        const blob = this._files.get(path);
         if (!blob) {
-            log.error(`File not found in in-memory store: ${storageKey}`);
-            throw new Error(`File not found: ${storageKey}`);
+            log.error(`File not found in in-memory store: ${path}`);
+            throw new Error(`File not found: ${path}`);
         }
         return blob;
     }
 
-    async removeFile(fileItemId: string, contentHash: string): Promise<void> {
-        const storageKey = this._getStorageKey(fileItemId, contentHash);
-        const deleted = this._files.delete(storageKey);
-
+    async removeFile(path: string): Promise<void> {
+        const deleted = this._files.delete(path);
         if (deleted) {
-            log.info(`Removed file from in-memory store: ${storageKey}`);
+            log.info(`Removed file from in-memory store: ${path}`);
         } else {
-            log.warning(`File not found for deletion in in-memory store: ${storageKey}`);
+            log.warning(`File not found for deletion in in-memory store: ${path}`);
         }
     }
 
