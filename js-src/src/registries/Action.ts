@@ -12,6 +12,10 @@ type ReportActionStateHook = (action: ActionState) => void;
 let _rootActionStartedHooks: Array<ReportActionStateHook> = [];
 let _rootActionCompletedHooks: Array<ReportActionStateHook> = [];
 
+// Exception handling
+type ActionExceptionHandler = (action: ActionState, error: unknown) => void;
+let _actionExceptionHandler: ActionExceptionHandler | null = null;
+
 // Register the root action hooks
 export function registerRootActionStartedHook(hook: ReportActionStateHook) {
     log.info('registerRootActionStartedHook called')
@@ -21,6 +25,11 @@ export function registerRootActionStartedHook(hook: ReportActionStateHook) {
 export function registerRootActionCompletedHook(hook: ReportActionStateHook) {
     log.info('registerRootActionCompletedHook called')
     _rootActionCompletedHooks.push(hook);
+}
+
+export function setActionExceptionHandler(handler: ActionExceptionHandler) {
+    log.info('setActionExceptionHandler called')
+    _actionExceptionHandler = handler;
 }
 
 function processMethod(descriptor: PropertyDescriptor, name: string, issuer: string): PropertyDescriptor {
@@ -51,6 +60,15 @@ function processMethod(descriptor: PropertyDescriptor, name: string, issuer: str
         if (exception) {
             // If an exception was thrown, set the action state to failed
             actionState.runState = ActionRunStates.FAILED;
+
+            // Call exception handler or rethrow
+            if (_actionExceptionHandler) {
+                try {
+                    _actionExceptionHandler(actionState, exception);
+                } catch (handlerError) {
+                    log.error(`Error in action exception handler for ${funcName}`, handlerError);
+                }
+            }
         }
 
 
