@@ -129,11 +129,11 @@ export function getStorageUpdatesChannel(name: string): Channel {
 }
 
 const STORAGE_SERVICE_CALL_TIMEOUT_MS = 10000;
-const STORAGE_SERVICE_CONTROLLER_TIMEOUT_MS = 15000;
 
 export type StorageBackendKind =
     | 'none'
     | 'service-worker'
+    | 'shared-worker'
     | 'main-thread';
 
 export type StorageConnectionPhase =
@@ -238,19 +238,16 @@ export class StorageService {
      *   sync graph changes.
      */
     private _service: Comlink.Remote<StorageServiceActualInterface> | StorageServiceActualInterface | null = null;
-    _worker: ServiceWorker | null = null;
-    _workerRegistration: ServiceWorkerRegistration | null = null;
+    _sharedWorker: SharedWorker | null = null;
     _localUpdateChannel: Channel | null = null;
     _localUpdateSubscription: Subscription | null = null;
     _projectUpdateCallbacks: Map<string, RepoUpdateNotifiedSignature> = new Map();
-    _isWrapper: boolean = false; // whether this is a wrapper for the service worker or a main thread instance
+    _isWrapper: boolean = false; // whether this is a wrapper for the shared worker or a main thread instance
     state: StorageServiceRuntimeState = createInitialStorageServiceRuntimeState();
     private _stateChangeHandler: ((state: StorageServiceRuntimeState) => void) | null = null;
-    private _workerStateListeners: WeakSet<ServiceWorker> = new WeakSet();
     private _activeProjectConfig: ProjectStorageConfig | null = null;
     private _activeProjectUpdateCallback: RepoUpdateNotifiedSignature | undefined;
     private _activeProjectUri: string | undefined;
-    private _reconnectInFlight: Promise<void> | null = null;
 
     constructor() {
         // Create the channel for receiving updates (broadcast if available, else local)
@@ -269,7 +266,7 @@ export class StorageService {
 
     get service(): Comlink.Remote<StorageServiceActualInterface> | StorageServiceActualInterface {
         if (!this._service) {
-            throw new Error("Service not setup. Call setupInMainThread or setupInServiceWorker first.");
+            throw new Error("Service not setup. Call setupInMainThread or setupInSharedWorker first.");
         }
         return this._service;
     }
@@ -279,10 +276,13 @@ export class StorageService {
         this.emitState();
     }
 
-    setupInMainThread() {
+    setupInMainThread(
+        fileRequestParser?: FileRequestParser,
+        addons?: { name: string, create: (psm: ProjectStorageManager) => StorageAddon }[],
+    ) {
         log.info('Setting up storage service in main thread');
         this._isWrapper = false;
-        this._service = new StorageServiceActual();
+        this._service = new StorageServiceActual(fileRequestParser, addons);
         this.setState({
             backend: 'main-thread',
             connectionPhase: 'main-thread-ready',
@@ -294,120 +294,49 @@ export class StorageService {
         });
     }
 
-    async setupInServiceWorker(serviceWorkerUrl: string) {
+    async setupInSharedWorker(sharedWorkerUrl: string) {
+        log.info('Setting up storage service via SharedWorker');
         this._isWrapper = true;
         this.setState({
-            backend: 'service-worker',
-            connectionPhase: 'registering',
-            usingServiceWorker: true,
-            hasController: this.hasServiceWorkerController(),
+            backend: 'shared-worker',
+            connectionPhase: 'connecting',
+            usingServiceWorker: false,
+            hasController: false,
             connected: false,
-            workerLifecycle: 'unknown',
+            workerLifecycle: 'none',
         });
+
+        const worker = new SharedWorker(sharedWorkerUrl, { type: 'module' });
+        this._sharedWorker = worker;
+
+        const service = Comlink.wrap<StorageServiceActualInterface>(worker.port);
+
         try {
-            await this.registerServiceWorker(serviceWorkerUrl);
-            this.setState({
-                connectionPhase: 'waiting-for-controller',
-                hasController: this.hasServiceWorkerController(),
-            });
-            await this.waitForController();
-        } catch (error) {
-            if (!(error instanceof Error && error.message.includes('SW never took control'))) {
-                this.setError('sw-register-failed', `Failed to register the service worker: ${this.errorMessage(error)}`, {
-                    connectionPhase: 'fatal',
-                    recoverable: false,
-                    reloadRecommended: true,
-                });
-                throw error;
-            }
-            this.setError('sw-controller-timeout', 'Timed out while waiting for the service worker to take control.', {
+            await this.runWithTimeout(
+                'connectToSharedWorker',
+                Promise.resolve(service.test()),
+                STORAGE_SERVICE_CALL_TIMEOUT_MS,
+            );
+        } catch (e) {
+            this.setError('sw-connect-failed', `SharedWorker connection test failed: ${this.errorMessage(e)}`, {
                 connectionPhase: 'fatal',
                 recoverable: false,
                 reloadRecommended: true,
             });
-            throw error;
+            throw e;
         }
 
-        await this.reconnectToWorker('fatal');
-
-        // Reconnect after updates / skipWaiting
-        navigator.serviceWorker.addEventListener('controllerchange', () => {
-            this.setState({
-                hasController: this.hasServiceWorkerController(),
-            });
-            this.reconnectToWorker('disconnected').catch(err => {
-                log.error('Reconnect after update failed', err);
-            });
-        });
-    }
-
-    async registerServiceWorker(serviceWorkerUrl: string): Promise<ServiceWorkerRegistration> {
-        if (!('serviceWorker' in navigator)) {
-            this.setError('sw-api-unavailable', 'Service workers are not supported in this browser.', {
-                connectionPhase: 'fatal',
-                recoverable: false,
-                reloadRecommended: false,
-            });
-            throw new Error('Service workers are not supported in this browser.');
-        }
-        if (this._workerRegistration) {
-            throw new Error('Service worker already registered. Cannot register again.');
-        }
-        log.info('Registering service worker ', serviceWorkerUrl);
-        const registration = await navigator.serviceWorker.register(serviceWorkerUrl, { type: 'module', scope: '/' });
-        this.setWorkerRegistration(registration);
-        return registration;
-    }
-
-    private async waitForController(): Promise<void> {
-        if (navigator.serviceWorker.controller) return;
-        await new Promise<void>((resolve, reject) => {
-            const to = setTimeout(() => reject(new Error('SW never took control')), STORAGE_SERVICE_CONTROLLER_TIMEOUT_MS);
-            navigator.serviceWorker.addEventListener('controllerchange', () => {
-                clearTimeout(to);
-                resolve();
-            }, { once: true });
-        });
-    }
-
-    private async connectToWorker(): Promise<void> {
-        if (!this.hasServiceWorkerController()) {
-            throw new Error('No service worker controller available.');
-        }
-        const controller = navigator.serviceWorker.controller!;
-        const { port1, port2 } = new MessageChannel();
-        controller.postMessage({ type: 'CONNECT_STORAGE' }, [port2]);
-        this._worker = controller;
-
-        const service = Comlink.wrap<StorageServiceActualInterface>(port1);
-
-        try {
-            await this.runWithTimeout('connectToWorker', Promise.resolve(service.test()), STORAGE_SERVICE_CALL_TIMEOUT_MS);
-        } catch (e) {
-            log.error('Service worker test failed:', e);
-            throw new Error(`Service worker test failed: ${e}`);
-        }
         this._service = service;
-        log.info('Remote service initialized');
+        this.setState({
+            connectionPhase: 'ready',
+            connected: true,
+            lastReadyAt: Date.now(),
+        });
+        log.info('SharedWorker storage service ready');
     }
 
-    setWorkerRegistration(registration: ServiceWorkerRegistration) {
-        this._workerRegistration = registration;
-        registration.addEventListener('updatefound', () => {
-            if (registration.installing) {
-                this.attachWorkerStateListener(registration.installing);
-            }
-        });
-        if (registration.installing) {
-            this.attachWorkerStateListener(registration.installing);
-        }
-        if (registration.waiting) {
-            this.attachWorkerStateListener(registration.waiting);
-        }
-        if (registration.active) {
-            this.attachWorkerStateListener(registration.active);
-        }
-        log.info('Service worker registration set. Scope:', registration.scope);
+    async setupInServiceWorker(_serviceWorkerUrl: string) {
+        throw new Error('setupInServiceWorker is removed. Use setupInSharedWorker instead.');
     }
 
     // Proxy interface methods
@@ -505,32 +434,9 @@ export class StorageService {
         return this.runStorageCall('test', '', () => Promise.resolve(this.service.test()));
     }
 
-    async unregisterServiceWorker() {
-        if (!this._workerRegistration) {
-            throw new Error('Service worker registration not found. Cannot restart service worker.');
-        }
-
-        log.info('Unregistering service worker...');
-        await this._workerRegistration.unregister();
-        log.info('Service worker unregistered. Reloading page to re-register...');
+    async restartStorageWorker() {
+        log.info('Restarting storage worker (page reload)...');
         window.location.reload();
-    }
-
-    async checkForUpdate(): Promise<'waiting' | 'none' | 'no-reg'> {
-        const reg = this._workerRegistration;
-        if (!reg) return 'no-reg';
-        await reg.update();
-        return reg.waiting ? 'waiting' : 'none';
-    }
-
-    async applyUpdateNow(): Promise<void> {
-        const reg = this._workerRegistration;
-        if (!reg?.waiting) return;
-        const swapped = new Promise<void>(resolve =>
-            navigator.serviceWorker.addEventListener('controllerchange', () => resolve(), { once: true })
-        );
-        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-        await swapped; // controller replaced; connectToWorker() listener will fire
     }
 
     disconnect() {
@@ -589,61 +495,6 @@ export class StorageService {
         });
     }
 
-    private clearRemoteConnection() {
-        this._service = null;
-        this._worker = null;
-        this.setState({
-            connected: false,
-            hasController: this.hasServiceWorkerController(),
-            projectPhase: this.state.activeProjectId ? 'detached' : this.state.projectPhase,
-        });
-    }
-
-    private hasServiceWorkerController() {
-        return typeof navigator !== 'undefined'
-            && 'serviceWorker' in navigator
-            && navigator.serviceWorker.controller !== null;
-    }
-
-    private attachWorkerStateListener(worker: ServiceWorker) {
-        if (this._workerStateListeners.has(worker)) {
-            return;
-        }
-        this._workerStateListeners.add(worker);
-        const updateLifecycle = () => {
-            const workerLifecycle = this.mapWorkerLifecycle(worker.state);
-            this.setState({ workerLifecycle });
-            if (workerLifecycle === 'redundant') {
-                this.clearRemoteConnection();
-                this.setError('sw-worker-redundant', 'The service worker became redundant.', {
-                    connectionPhase: 'disconnected',
-                    recoverable: true,
-                    reloadRecommended: true,
-                    workerLifecycle,
-                });
-            }
-        };
-        worker.addEventListener('statechange', updateLifecycle);
-        updateLifecycle();
-    }
-
-    private mapWorkerLifecycle(state: ServiceWorkerState): ServiceWorkerLifecycleState {
-        switch (state) {
-            case 'installing':
-                return 'installing';
-            case 'installed':
-                return 'installed';
-            case 'activating':
-                return 'activating';
-            case 'activated':
-                return 'activated';
-            case 'redundant':
-                return 'redundant';
-            default:
-                return 'unknown';
-        }
-    }
-
     private async runWithTimeout<T>(operationName: string, work: Promise<T>, timeoutMs: number): Promise<T> {
         return new Promise<T>((resolve, reject) => {
             const timeoutHandle = setTimeout(() => {
@@ -670,74 +521,6 @@ export class StorageService {
         return String(error);
     }
 
-    private async reconnectToWorker(failurePhase: StorageConnectionPhase): Promise<void> {
-        if (!this._isWrapper) {
-            return;
-        }
-        if (this._reconnectInFlight) {
-            return this._reconnectInFlight;
-        }
-
-        this._reconnectInFlight = (async () => {
-            this.setState({
-                connectionPhase: 'connecting',
-                hasController: this.hasServiceWorkerController(),
-            });
-            try {
-                await this.connectToWorker();
-                await this.restoreActiveProject();
-                this.setState({
-                    connectionPhase: 'ready',
-                    connected: true,
-                    hasController: this.hasServiceWorkerController(),
-                    workerLifecycle: this.state.workerLifecycle === 'unknown' ? 'activated' : this.state.workerLifecycle,
-                    lastReadyAt: Date.now(),
-                });
-            } catch (error) {
-                this.clearRemoteConnection();
-                const code = this.isTimeoutError(error) ? 'sw-connect-timeout' : 'sw-connect-failed';
-                this.setError(code, `Failed to connect to the service worker: ${this.errorMessage(error)}`, {
-                    connectionPhase: failurePhase,
-                    recoverable: failurePhase !== 'fatal',
-                    reloadRecommended: failurePhase === 'fatal',
-                });
-                throw error;
-            } finally {
-                this._reconnectInFlight = null;
-            }
-        })();
-
-        return this._reconnectInFlight;
-    }
-
-    private async restoreActiveProject(): Promise<void> {
-        if (!this.state.activeProjectId || !this._activeProjectConfig) {
-            return;
-        }
-
-        this.setState({
-            projectPhase: 'attaching',
-        });
-        try {
-            await this.runWithTimeout(
-                'restoreActiveProject',
-                this.service.loadProject(this.state.activeProjectId, this._activeProjectConfig, this._activeProjectUri),
-                STORAGE_SERVICE_CALL_TIMEOUT_MS
-            );
-            if (this._activeProjectUpdateCallback) {
-                this._projectUpdateCallbacks.set(this.state.activeProjectId, this._activeProjectUpdateCallback);
-            }
-            this.setState({
-                projectPhase: 'attached',
-            });
-        } catch (error) {
-            this.setState({
-                projectPhase: 'detached',
-            });
-            throw error;
-        }
-    }
-
     private async ensureConnectedForCall(): Promise<void> {
         if (!this._isWrapper) {
             return;
@@ -748,7 +531,7 @@ export class StorageService {
         if (this.state.connectionPhase === 'fatal') {
             throw new Error('Storage service is in a fatal state.');
         }
-        await this.reconnectToWorker('disconnected');
+        throw new Error('Storage service is not connected. Reload the page.');
     }
 
     private createCallTrace(operationName: string, detail: string): StorageCallTrace {
@@ -772,11 +555,11 @@ export class StorageService {
         } catch (error) {
             if (this.isTimeoutError(error)) {
                 log.error(`${this.formatCallTrace(trace)} timed out after ${Date.now() - trace.startedAt}ms`, error);
-                this.clearRemoteConnection();
                 this.setError('storage-call-timeout', `${trace.operationName} timed out.`, {
                     operation: trace.operationName,
                     connectionPhase: 'disconnected',
                     recoverable: true,
+                    reloadRecommended: true,
                 });
             } else {
                 log.error(`${this.formatCallTrace(trace)} failed after ${Date.now() - trace.startedAt}ms`, error);
@@ -824,20 +607,14 @@ export class StorageServiceActual implements StorageServiceActualInterface {
     private _storageUpdateSubscription: Subscription | null = null;
     private _storageOperationQueue: PendingStorageOperationRequest[] = [];
     private _processing = false;
-    private fileRequestParser?: FileRequestParser;
-
-    // Runtime tracking for files created via addFile during this session.
-    // Keys are file paths.
-    private _createdFilesThisSession: Set<string> = new Set();
 
     // Addon descriptors
     private _addons: { name: string, create: (psm: ProjectStorageManager) => StorageAddon }[];
 
     constructor(
-        fileRequestParser?: FileRequestParser,
+        _fileRequestParser?: FileRequestParser, // kept for backward compat, no longer used
         addons?: { name: string, create: (psm: ProjectStorageManager) => StorageAddon }[],
     ) {
-        this.fileRequestParser = fileRequestParser;
         this._addons = addons ?? [];
 
         // Single channel for broadcasting and receiving storage updates
@@ -847,96 +624,9 @@ export class StorageServiceActual implements StorageServiceActualInterface {
         );
     }
 
-    inWorker(): boolean {
-        // @ts-ignore: ServiceWorkerGlobalScope is global only in SW
-        return typeof ServiceWorkerGlobalScope !== 'undefined' && self instanceof ServiceWorkerGlobalScope;
-    }
-
     test() {
         log.info('Test!!!!!!!!!')
         return true
-    }
-
-    setupFileRequestInterception() {
-        /**
-         * Sets up the file request interception for the service worker.
-         * For the desktop-app and offline-webapp scenarios we intercept
-         * file requests to serve the files from the respective storage
-         */
-        if (!this.inWorker()) {
-            throw new Error('File request interception can only be set up in a service worker context');
-        }
-
-        // Check if fetch event interception is available
-        if (typeof self.addEventListener !== 'function') {
-            throw new Error('Service worker fetch event interception is not available. Cannot set up file request interception.');
-        }
-
-
-        // Set up fetch event listener for file requests only if a handler is provided
-        if (this.fileRequestParser) {
-            self.addEventListener('fetch', this.handleFetch);
-            log.info('Set up global fetch interception for file requests in service worker');
-        } else {
-            log.info('No file request handler set up. Skipping fetch interception setup.')
-        }
-    }
-
-    // Set up fetch event listener for file requests
-    handleFetch = (event: Event) => {
-        const fetchEvent = event as FetchEvent;
-        const url = fetchEvent.request.url;
-
-        // log.info(`Intercepting fetch request for URL: ${url}`);
-
-        // Parse the URL using the file request handler
-        const fileRequest = this.fileRequestParser!(this, url);
-
-        if (fileRequest) {
-            fetchEvent.respondWith(this.handleFileRequest(fetchEvent.request, fileRequest));
-        }
-    };
-
-    async handleFileRequest(request: Request, fileRequest: FileRequest): Promise<Response> {
-        log.info(`Handling file request for URL: ${request.url}`, fileRequest);
-        try {
-            if (!fileRequest.filePath || !fileRequest.projectId) {
-                log.warning(`Invalid file URL format: ${request.url}`);
-                return new Response('Invalid file URL format', {
-                    status: 400,
-                    statusText: 'Bad Request',
-                    headers: { 'Content-Type': 'text/plain' }
-                });
-            }
-
-            // Get project storage manager for the project
-            const repoManager = this.repoManagers[fileRequest.projectId];
-            if (!repoManager) {
-                log.warning(`No repo manager found for project: ${fileRequest.projectId}`);
-                return new Response(`Project not found ${fileRequest.projectId}`, {
-                    status: 404,
-                    statusText: 'Not Found',
-                    headers: { 'Content-Type': 'text/plain' }
-                });
-            }
-
-            const blob = await repoManager.fileStore.getFile(fileRequest.filePath);
-            log.info(`Serving file from storage: ${fileRequest.filePath}`);
-            return new Response(blob, {
-                headers: {
-                    'Content-Type': blob.type,
-                    'Content-Length': blob.size.toString(),
-                }
-            });
-
-        } catch (error) {
-            log.warning(`File not found: ${request.url}`, error);
-            return new Response('File not found', {
-                status: 404,
-                statusText: 'Not Found',
-                headers: { 'Content-Type': 'text/plain' }
-            });
-        }
     }
 
     async loadProject(projectId: string, projectStorageConfig: ProjectStorageConfig, projectUri?: string): Promise<void> {
@@ -1196,9 +886,6 @@ export class StorageServiceActual implements StorageServiceActualInterface {
         log.info(`Adding file to project ${projectId} with unique path: ${uniquePath}`);
         const result = await repoManager.fileStore.addFile(blob, uniquePath);
 
-        // Mark created in this session to skip restore logic during commit processing
-        this._createdFilesThisSession.add(result.path);
-
         return result;
     }
 
@@ -1217,9 +904,6 @@ export class StorageServiceActual implements StorageServiceActualInterface {
         }
 
         await repoManager.fileStore.removeFile(path);
-
-        // Unset runtime-created mark when removed explicitly
-        this._createdFilesThisSession.delete(path);
     }
 
     disconnect() {

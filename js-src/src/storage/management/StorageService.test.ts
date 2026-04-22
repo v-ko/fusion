@@ -104,10 +104,9 @@ describe("StorageService base functionality", () => {
         (storageService as any)._isWrapper = true;
         (storageService as any)._service = pendingRemote;
         (storageService as any).setState({
-            backend: 'service-worker',
+            backend: 'shared-worker',
             connectionPhase: 'ready',
             connected: true,
-            usingServiceWorker: true,
         });
 
         const createPromise = storageService.createProject(projectId, projectStorageConfig);
@@ -120,33 +119,17 @@ describe("StorageService base functionality", () => {
         expect(storageService.state.lastError?.operation).toBe('createProject');
     });
 
-    test("disconnected remote call reconnects once before executing", async () => {
-        const remoteCreate = jest.fn(async () => { return 'inmemory:///test-project'; });
-        const reconnectSpy = jest.spyOn(storageService as any, 'reconnectToWorker').mockImplementation(async () => {
-            (storageService as any)._service = {
-                createProject: remoteCreate,
-                disconnect: jest.fn(),
-            };
-            (storageService as any).setState({
-                connectionPhase: 'ready',
-                connected: true,
-            });
-        });
-
+    test("disconnected remote call throws instead of reconnecting", async () => {
         (storageService as any)._isWrapper = true;
         (storageService as any)._service = null;
         (storageService as any).setState({
-            backend: 'service-worker',
+            backend: 'shared-worker',
             connectionPhase: 'disconnected',
             connected: false,
-            usingServiceWorker: true,
         });
 
-        await storageService.createProject(projectId, projectStorageConfig);
-
-        expect(reconnectSpy).toHaveBeenCalledTimes(1);
-        expect(remoteCreate).toHaveBeenCalledTimes(1);
-        expect(storageService.state.connectionPhase).toBe('ready');
+        await expect(storageService.createProject(projectId, projectStorageConfig))
+            .rejects.toThrow('Storage service is not connected. Reload the page.');
     });
 
     test("loadProject updates project phase on success and resets it on failure", async () => {

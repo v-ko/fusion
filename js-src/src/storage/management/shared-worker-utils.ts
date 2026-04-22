@@ -3,15 +3,13 @@ import { getLogger } from '../../logging';
 import { StorageServiceActualInterface } from './StorageService';
 import { createId } from '../../util/base';
 
-const log = getLogger('service-worker-utils');
+const log = getLogger('shared-worker-utils');
 
-declare const self: ServiceWorkerGlobalScope;
+declare const self: SharedWorkerGlobalScope;
 
 type LoggedStorageServiceBridge = {
     [K in keyof StorageServiceActualInterface]: StorageServiceActualInterface[K];
 };
-
-console.log('test')
 
 function createLoggedStorageServiceBridge(storageService: StorageServiceActualInterface): LoggedStorageServiceBridge {
     return {
@@ -71,45 +69,19 @@ async function logWorkerOperation<T>(operationName: string, detail: string, work
     }
 }
 
-export function setupServiceWorker(storageService: StorageServiceActualInterface) {
+export function setupSharedWorker(storageService: StorageServiceActualInterface) {
     const loggedStorageService = createLoggedStorageServiceBridge(storageService);
-    // Configure the service worker to update immediately and claim clients upon activation
-    self.addEventListener('install', event => {
-        log.info('Service worker installed');
-        // We are not calling skipWaiting() here anymore. The client will decide when to activate the new SW.
-    });
 
-    self.addEventListener('activate', event => {
-        // Claim clients immediately
-        log.info('Service worker activated');
-        event.waitUntil(self.clients.claim());
-    });
-
-    // Handle MessageChannel connections from main thread
-    self.addEventListener("message", (event: ExtendableMessageEvent) => {
-        log.info('Service worker received message:', event.data);
-
-        const { type } = event.data || {};
-        if (type === 'SKIP_WAITING') {
-            self.skipWaiting().catch(err => {
-                log.error('Service worker: Error skipping waiting state', err);
-            });
-            return;
+    self.addEventListener('connect', (event: MessageEvent) => {
+        const port = (event as MessageEvent).ports[0];
+        if (port) {
+            log.info('SharedWorker: New tab connected, exposing Comlink on port');
+            Comlink.expose(loggedStorageService, port);
+            port.start();
+        } else {
+            log.error('SharedWorker: No port received in connect event');
         }
-
-        // Handle Comlink connection setup
-        if (type === 'CONNECT_STORAGE') {
-            const port = event.ports[0];
-            if (port) {
-                log.info('Service worker: Setting up Comlink on MessageChannel port');
-                Comlink.expose(loggedStorageService, port);
-                log.info('Service worker: Comlink exposed on port');
-            } else {
-                log.error('Service worker: No port received in CONNECT_STORAGE message');
-            }
-            return;
-        }
-
-        log.info('Service worker: Unhandled message type', event.data.type);
     });
+
+    log.info('SharedWorker setup complete, waiting for connections');
 }
