@@ -2,11 +2,13 @@ import { FileStoreAdapter, AddFileResult } from "./FileStoreAdapter";
 import { buildRestApiAuthHeaders, RestApiAuthConfig } from "../rest-api/Auth";
 
 export class RestApiFileStoreAdapter implements FileStoreAdapter {
+  private _userId: string;
   private _projectId: string;
   private _baseUrl: string;
   private _auth: RestApiAuthConfig;
 
-  constructor(projectId: string, baseUrl: string, auth: RestApiAuthConfig) {
+  constructor(userId: string, projectId: string, baseUrl: string, auth: RestApiAuthConfig) {
+    this._userId = userId;
     this._projectId = projectId;
     this._baseUrl = baseUrl;
     this._auth = auth;
@@ -14,7 +16,7 @@ export class RestApiFileStoreAdapter implements FileStoreAdapter {
 
   private _url(path: string): string {
     const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-    return `${this._baseUrl}/desktop/projects/${encodeURIComponent(this._projectId)}${normalizedPath}`;
+    return `${this._baseUrl}/${encodeURIComponent(this._userId)}/${encodeURIComponent(this._projectId)}${normalizedPath}`;
   }
 
   private _headers(): HeadersInit {

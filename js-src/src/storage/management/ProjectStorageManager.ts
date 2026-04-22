@@ -48,6 +48,7 @@ export interface FileStoreConfig {
 }
 
 export interface FileStoreAdapterArgs {
+    userId?: string;
     projectId: string;
     baseUrl?: string;
     auth?: RestApiAuthConfig;
@@ -72,14 +73,17 @@ async function initFileStore(config: FileStoreConfig): Promise<FileStoreAdapter>
             break;
         }
         case "RestApi": {
-            const { projectId, baseUrl, auth } = config.args;
+            const { userId, projectId, baseUrl, auth } = config.args;
+            if (!userId) {
+                throw new Error("RestApi file store requires args.userId in config");
+            }
             if (!baseUrl) {
                 throw new Error("RestApi file store requires args.baseUrl in config");
             }
             if (!auth) {
                 throw new Error("RestApi file store requires args.auth in config");
             }
-            fileStore = new RestApiFileStoreAdapter(projectId, baseUrl, auth);
+            fileStore = new RestApiFileStoreAdapter(userId, projectId, baseUrl, auth);
             break;
         }
         default: {
