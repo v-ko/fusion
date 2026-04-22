@@ -542,7 +542,7 @@ export class Repository {
             // Assert hash is correct
             let snapshotHash = this.hashTree.rootHash()
             if (snapshotHash !== remoteHeadCommit!.snapshotHash) {
-                console.log(remoteHeadCommit, this.hashTree)
+                log.error('Snapshot hash mismatch after pull. Remote head commit:', remoteHeadCommit, 'Hash tree root:', this.hashTree.rootHash())
                 throw new RepositoryIntegrityError("Snapshot hash mismatch after pull")
             }
         }

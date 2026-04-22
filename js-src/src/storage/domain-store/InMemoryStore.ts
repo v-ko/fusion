@@ -512,7 +512,7 @@ export class InMemoryStore extends Store {
             // Fallback to full scan using the id index
             const { indexes } = this.indexManager.indexStorage;
             const allEntitiesIndex = indexes.get("id");
-            console.log('Fallback to full scan, id index size:', allEntitiesIndex?.size);
+            log.info('Fallback to full scan, id index size:', allEntitiesIndex?.size);
             if (allEntitiesIndex) {
                 candidates = Array.from(allEntitiesIndex.values()) as Entity<EntityData>[];
             }

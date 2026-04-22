@@ -5,7 +5,6 @@ import { CacheFileStoreAdapter } from "../file-store/CacheFileStoreAdapter";
 import { RestApiFileStoreAdapter } from "../file-store/RestApiFileStoreAdapter";
 import { getLogger } from "../../logging";
 import { RestApiAuthConfig } from "../rest-api/Auth";
-import { ProjectData } from "./StorageService";
 import type { StorageService } from "./StorageService";
 import type { DomainStoreAdapter, DomainStoreConfig } from "../domain-store-adapter/DomainStoreAdapter";
 import { RestApiDomainStoreAdapter } from "../domain-store-adapter/RestApiDomainStoreAdapter";
@@ -229,7 +228,17 @@ export class ProjectStorageManager {
                 const diskHash = this._onDeviceRepo.hashTree.rootHash();
                 const vcsHash = headCommit.snapshotHash;
                 if (diskHash !== vcsHash) {
-                    throw new Error(`Integrity check failed: filesystem hash (${diskHash}) does not match VCS head hash (${vcsHash}). integrityPatch not yet implemented.`);
+                    log.error(`Integrity check failed: filesystem hash (${diskHash}) does not match VCS head hash (${vcsHash}). Discarding VCS and recreating.`);
+                    this._onDeviceRepo.close();
+                    const adapter = await getVcsAdapter(this.config.onDeviceVcsAdapter);
+                    await adapter.eraseStorage();
+
+                    this._onDeviceRepo = await Repository.create(this.config.onDeviceVcsAdapter, true);
+                    const initialDelta = Delta.fromChanges(headStoreData!.map(e => Change.create(e)));
+                    await this._onDeviceRepo.commit(initialDelta, 'Re-seed after integrity failure');
+                    this._parentStorageService?.reportError(
+                        'VCS integrity check failed. The version history was discarded and recreated from the current data. No data was lost, but commit history is gone.'
+                    );
                 }
             }
 

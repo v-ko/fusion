@@ -4,14 +4,13 @@ import { DeltaData } from '../../model/Delta';
 import { RepoUpdateData } from '../repository/Repository';
 import { AddFileResult } from '../file-store/FileStoreAdapter';
 import { getLogger } from '../../logging';
-import { Channel, Subscription } from '../../registries/Channel';
+import { Subscription } from '../../registries/Channel';
 import { CommitData } from '../version-control/Commit';
 import { CommitGraphData } from '../version-control/CommitGraph';
 import {
     StorageServiceInterface,
     StorageService,
-    FileRequestParser,
-    LocalStorageUpdateMessage,
+    StorageChannelMessage,
     getStorageUpdatesChannel,
     LOCAL_STORAGE_UPDATE_CHANNEL,
     CommitOperationResult,
@@ -46,6 +45,7 @@ export interface StorageProxyState {
     projectPhase: StorageProjectPhase;
     activeProjectId: string | null;
     lastError: StorageProxyError | null;
+    errors: StorageProxyError[];
     degraded: boolean;
     degradedReason: string | null;
 }
@@ -56,6 +56,7 @@ export function createInitialStorageProxyState(): StorageProxyState {
         projectPhase: 'detached',
         activeProjectId: null,
         lastError: null,
+        errors: [],
         degraded: false,
         degradedReason: null,
     };
@@ -72,17 +73,16 @@ const CONNECT_TIMEOUT_MS = 10_000;
 export class StorageServiceProxy {
     private _service: Comlink.Remote<StorageServiceInterface> | StorageServiceInterface | null = null;
     private _sharedWorker: SharedWorker | null = null;
-    private _localUpdateChannel: Channel;
-    private _localUpdateSubscription: Subscription;
+    private _channelSubscription: Subscription;
     private _projectUpdateCallbacks: Map<string, RepoUpdateNotifiedSignature> = new Map();
     private _stateChangeHandler: ((state: StorageProxyState) => void) | null = null;
 
     state: StorageProxyState = createInitialStorageProxyState();
 
     constructor() {
-        this._localUpdateChannel = getStorageUpdatesChannel(LOCAL_STORAGE_UPDATE_CHANNEL);
-        this._localUpdateSubscription = this._localUpdateChannel.subscribe(
-            this._handleChannelMessage.bind(this),
+        const channel = getStorageUpdatesChannel(LOCAL_STORAGE_UPDATE_CHANNEL);
+        this._channelSubscription = channel.subscribe(
+            (msg: StorageChannelMessage) => this._handleChannelMessage(msg),
         );
     }
 
@@ -95,7 +95,11 @@ export class StorageServiceProxy {
 
     private _emitState() {
         if (this._stateChangeHandler) {
-            this._stateChangeHandler({ ...this.state, lastError: this.state.lastError ? { ...this.state.lastError } : null });
+            this._stateChangeHandler({
+                ...this.state,
+                lastError: this.state.lastError ? { ...this.state.lastError } : null,
+                errors: [...this.state.errors],
+            });
         }
     }
 
@@ -107,15 +111,27 @@ export class StorageServiceProxy {
     }
 
     private _setError(message: string, connectionPhase?: StorageConnectionPhase) {
+        const error: StorageProxyError = { message, timestamp: Date.now() };
         this._setState({
             connectionPhase: connectionPhase ?? this.state.connectionPhase,
-            lastError: { message, timestamp: Date.now() },
+            lastError: error,
+            errors: [...this.state.errors, error],
         });
     }
 
     setDegraded(reason: string) {
         log.warning('Storage service running in degraded mode:', reason);
         this._setState({ degraded: true, degradedReason: reason });
+    }
+
+    /** Record a non-fatal error without changing connection phase. */
+    reportError(message: string) {
+        log.error('Storage error reported:', message);
+        const error: StorageProxyError = { message, timestamp: Date.now() };
+        this._setState({
+            lastError: error,
+            errors: [...this.state.errors, error],
+        });
     }
 
     // ----- Service accessor -----
@@ -129,20 +145,27 @@ export class StorageServiceProxy {
 
     // ----- Channel handling -----
 
-    private _handleChannelMessage(msg: LocalStorageUpdateMessage) {
-        log.info('Received local storage update', msg);
-        const cb = this._projectUpdateCallbacks.get(msg.projectId);
-        if (cb) cb(msg.update);
+    private _handleChannelMessage(msg: StorageChannelMessage) {
+        switch (msg.type) {
+            case 'repoUpdate': {
+                log.info('Received local storage update', msg);
+                const cb = this._projectUpdateCallbacks.get(msg.projectId);
+                if (cb) cb(msg.update);
+                break;
+            }
+            case 'error':
+                this.reportError(msg.message);
+                break;
+        }
     }
 
     // ----- Setup -----
 
     setupInMainThread(
-        fileRequestParser?: FileRequestParser,
         addons?: { name: string; create: (psm: ProjectStorageManager) => StorageAddon }[],
     ) {
         log.info('Setting up storage service in main thread');
-        this._service = new StorageService(fileRequestParser, addons);
+        this._service = new StorageService(addons);
         this._setState({ connectionPhase: 'ready' });
     }
 
@@ -269,7 +292,7 @@ export class StorageServiceProxy {
     }
 
     disconnect() {
-        this._localUpdateSubscription?.unsubscribe();
+        this._channelSubscription?.unsubscribe();
         if (this._service && !(this._service as any)[Comlink.releaseProxy]) {
             // Main-thread instance — call disconnect directly
             (this._service as StorageServiceInterface).disconnect();

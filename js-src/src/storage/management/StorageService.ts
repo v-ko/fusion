@@ -15,9 +15,11 @@ let log = getLogger('StorageService')
 // Simple policy: squash commits older than this TTL into the first commit (J=0)
 const SQUASH_TTL_MS = 15 * 60 * 1000 // TODO: Should be passed as a parameter
 
-export interface FileRequest {
-    projectId: string;
-    filePath: string;
+export class RepositoryConfigMismatchError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = "RepositoryConfigMismatchError";
+    }
 }
 
 export interface ProjectData {
@@ -26,15 +28,6 @@ export interface ProjectData {
     description: string;
     created: string;
 }
-
-export class RepositoryConfigMismatchError extends Error {
-    constructor(message: string) {
-        super(message);
-        this.name = "RepositoryConfigMismatchError";
-    }
-}
-
-export type FileRequestParser = (storageService: StorageService, url: string) => FileRequest | null;
 
 export type RepoUpdateNotifiedSignature = (update: RepoUpdateData) => void;
 
@@ -74,10 +67,18 @@ export interface CommitOperationResult {
 }
 
 export interface LocalStorageUpdateMessage {
-    projectId: string
-    storageServiceId: string
-    update: RepoUpdateData
+    type: 'repoUpdate';
+    projectId: string;
+    storageServiceId: string;
+    update: RepoUpdateData;
 }
+
+export interface ServiceErrorMessage {
+    type: 'error';
+    message: string;
+}
+
+export type StorageChannelMessage = LocalStorageUpdateMessage | ServiceErrorMessage;
 
 export const LOCAL_STORAGE_UPDATE_CHANNEL = 'storage-service-local-storage-update-channel';
 
@@ -113,7 +114,6 @@ export class StorageService implements StorageServiceInterface {
     private _addons: { name: string, create: (psm: ProjectStorageManager) => StorageAddon }[];
 
     constructor(
-        _fileRequestParser?: FileRequestParser, // kept for backward compat, no longer used
         addons?: { name: string, create: (psm: ProjectStorageManager) => StorageAddon }[],
     ) {
         this._addons = addons ?? [];
@@ -121,8 +121,15 @@ export class StorageService implements StorageServiceInterface {
         // Single channel for broadcasting and receiving storage updates
         this._storageUpdateChannel = getStorageUpdatesChannel(LOCAL_STORAGE_UPDATE_CHANNEL);
         this._storageUpdateSubscription = this._storageUpdateChannel.subscribe(
-            (message: LocalStorageUpdateMessage) => this._onLocalStorageUpdate(message)
+            (message: StorageChannelMessage) => {
+                if (message.type === 'repoUpdate') this._onLocalStorageUpdate(message);
+            }
         );
+    }
+
+    /** Push a non-fatal error to all connected proxies. */
+    reportError(message: string) {
+        this._storageUpdateChannel.push({ type: 'error', message } as ServiceErrorMessage);
     }
 
     test() {
@@ -144,6 +151,7 @@ export class StorageService implements StorageServiceInterface {
             }
 
             await repoManager.loadProject(projectUri);
+
             this.repoManagers[projectId] = repoManager;
             this.repoRefCounts[projectId] = 0;
 
@@ -195,7 +203,7 @@ export class StorageService implements StorageServiceInterface {
         repoManager = new ProjectStorageManager(projectStorageConfig, this);
         await repoManager.createProject();
 
-        console.log(`[createProject] Created repo with head store ${JSON.stringify(repoManager._onDeviceRepo?.headStore)}`)
+        log.info(`[createProject] Created repo with head store ${JSON.stringify(repoManager._onDeviceRepo?.headStore)}`)
         // this.repoManagers[projectId] = repoManager;
         await repoManager.shutdown();  // Just create it, load separately
 
@@ -246,14 +254,14 @@ export class StorageService implements StorageServiceInterface {
         const commit = await repoManager.onDeviceRepo.commit(delta, message, {
             skipConflictingChanges: true,
         });
-        console.log('Created commit', commit)
+        log.info('Created commit', commit.id)
 
         // Try squash before notifying subscribers, so the broadcast reflects latest graph
         const squashedUpserts = await squashBranchHistory(
             repoManager.onDeviceRepo,
             repoManager.currentBranchName,
             SQUASH_TTL_MS
-        )//.catch(err => { log.error('[squash] Failed to squash history', err); return []; });
+        ).catch(err => { log.error('[squash] Failed to squash history', err); return []; });
 
         // Build upserted set conditionally: only augment when squash returned updates
         let upsertedCommits: CommitData[];
@@ -270,6 +278,7 @@ export class StorageService implements StorageServiceInterface {
         // Notify subscribers (graph reflects any squash because we fetch after applying)
         const commitGraph = await this.repoManagers[projectId].onDeviceRepo.getCommitGraph()
         this.broadcastLocalUpdate({
+            type: 'repoUpdate',
             projectId: projectId,
             storageServiceId: this.id,
             update: {
