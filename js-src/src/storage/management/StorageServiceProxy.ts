@@ -46,6 +46,8 @@ export interface StorageProxyState {
     projectPhase: StorageProjectPhase;
     activeProjectId: string | null;
     lastError: StorageProxyError | null;
+    degraded: boolean;
+    degradedReason: string | null;
 }
 
 export function createInitialStorageProxyState(): StorageProxyState {
@@ -54,6 +56,8 @@ export function createInitialStorageProxyState(): StorageProxyState {
         projectPhase: 'detached',
         activeProjectId: null,
         lastError: null,
+        degraded: false,
+        degradedReason: null,
     };
 }
 
@@ -67,6 +71,7 @@ const CONNECT_TIMEOUT_MS = 10_000;
 
 export class StorageServiceProxy {
     private _service: Comlink.Remote<StorageServiceInterface> | StorageServiceInterface | null = null;
+    private _sharedWorker: SharedWorker | null = null;
     private _localUpdateChannel: Channel;
     private _localUpdateSubscription: Subscription;
     private _projectUpdateCallbacks: Map<string, RepoUpdateNotifiedSignature> = new Map();
@@ -108,6 +113,11 @@ export class StorageServiceProxy {
         });
     }
 
+    setDegraded(reason: string) {
+        log.warning('Storage service running in degraded mode:', reason);
+        this._setState({ degraded: true, degradedReason: reason });
+    }
+
     // ----- Service accessor -----
 
     private get service(): Comlink.Remote<StorageServiceInterface> | StorageServiceInterface {
@@ -141,6 +151,7 @@ export class StorageServiceProxy {
         this._setState({ connectionPhase: 'connecting' });
 
         const worker = new SharedWorker(sharedWorkerUrl, { type: 'module' });
+        this._sharedWorker = worker;
         const service = Comlink.wrap<StorageServiceInterface>(worker.port);
 
         // Connection test with timeout
@@ -160,6 +171,12 @@ export class StorageServiceProxy {
 
         this._service = service;
         this._setState({ connectionPhase: 'ready' });
+
+        worker.onerror = (event) => {
+            log.error('SharedWorker crashed', event.message);
+            this._setError('SharedWorker crashed: ' + (event.message || 'unknown error'), 'disconnected');
+        };
+
         log.info('SharedWorker storage service ready');
     }
 
@@ -237,6 +254,18 @@ export class StorageServiceProxy {
     async restartStorageWorker() {
         log.info('Restarting storage worker (page reload)...');
         window.location.reload();
+    }
+
+    /** Testing only. Simulates a SharedWorker crash by severing the connection. */
+    simulateWorkerCrash() {
+        log.warning('Simulating SharedWorker crash');
+        this._service = null;
+        this._setError('Simulated SharedWorker crash', 'disconnected');
+    }
+
+    /** Testing only. Do not use in production code. */
+    get sharedWorker(): SharedWorker | null {
+        return this._sharedWorker;
     }
 
     disconnect() {
