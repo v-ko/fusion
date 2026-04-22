@@ -1,6 +1,6 @@
 import * as Comlink from 'comlink';
 import { getLogger } from '../../logging';
-import { StorageServiceActualInterface } from './StorageService';
+import { StorageServiceInterface } from './StorageService';
 import { createId } from '../../util/base';
 
 const log = getLogger('shared-worker-utils');
@@ -8,10 +8,10 @@ const log = getLogger('shared-worker-utils');
 declare const self: SharedWorkerGlobalScope;
 
 type LoggedStorageServiceBridge = {
-    [K in keyof StorageServiceActualInterface]: StorageServiceActualInterface[K];
+    [K in keyof StorageServiceInterface]: StorageServiceInterface[K];
 };
 
-function createLoggedStorageServiceBridge(storageService: StorageServiceActualInterface): LoggedStorageServiceBridge {
+function createLoggedStorageServiceBridge(storageService: StorageServiceInterface): LoggedStorageServiceBridge {
     return {
         loadProject: async (projectId, repoManagerConfig, projectUri) => {
             return logWorkerOperation('loadProject', `projectId=${projectId}`, () => storageService.loadProject(projectId, repoManagerConfig, projectUri));
@@ -31,11 +31,8 @@ function createLoggedStorageServiceBridge(storageService: StorageServiceActualIn
         getCommits: async (projectId, commitIds) => {
             return logWorkerOperation('getCommits', `projectId=${projectId} commitCount=${commitIds.length}`, () => storageService.getCommits(projectId, commitIds));
         },
-        _storageOperationRequest: async (request) => {
-            const details = 'projectId' in request
-                ? `type=${request.type} projectId=${request.projectId}`
-                : `type=${request.type}`;
-            return logWorkerOperation('_storageOperationRequest', details, () => storageService._storageOperationRequest(request));
+        commit: async (projectId, deltaData, message) => {
+            return logWorkerOperation('commit', `projectId=${projectId}`, () => storageService.commit(projectId, deltaData, message));
         },
         addFile: async (projectId, blob, path) => {
             return logWorkerOperation('addFile', `projectId=${projectId} path=${path} size=${blob.size}`, () => storageService.addFile(projectId, blob, path));
@@ -69,7 +66,7 @@ async function logWorkerOperation<T>(operationName: string, detail: string, work
     }
 }
 
-export function setupSharedWorker(storageService: StorageServiceActualInterface) {
+export function setupSharedWorker(storageService: StorageServiceInterface) {
     const loggedStorageService = createLoggedStorageServiceBridge(storageService);
 
     self.addEventListener('connect', (event: MessageEvent) => {

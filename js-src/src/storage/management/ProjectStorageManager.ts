@@ -6,7 +6,7 @@ import { RestApiFileStoreAdapter } from "../file-store/RestApiFileStoreAdapter";
 import { getLogger } from "../../logging";
 import { RestApiAuthConfig } from "../rest-api/Auth";
 import { ProjectData } from "./StorageService";
-import type { StorageServiceActual } from "./StorageService";
+import type { StorageService } from "./StorageService";
 import type { DomainStoreAdapter, DomainStoreConfig } from "../domain-store-adapter/DomainStoreAdapter";
 import { RestApiDomainStoreAdapter } from "../domain-store-adapter/RestApiDomainStoreAdapter";
 import { loadFromDict } from "../../model/Entity";
@@ -22,7 +22,7 @@ export type { DomainStoreConfig } from "../domain-store-adapter/DomainStoreAdapt
  * Extension point for app-specific storage concerns (e.g. desktop bridge
  * lifecycle, FS-change polling, reference enrichment).
  *
- * Addons are created by factories registered on StorageServiceActual and
+ * Addons are created by factories registered on StorageService and
  * attached to the PSM before loadProject runs.
  */
 export interface StorageAddon {
@@ -131,12 +131,12 @@ export class ProjectStorageManager {
     private _config: ProjectStorageConfig;
     _onDeviceRepo: Repository | null = null;
     private _localFileStore: FileStoreAdapter | null = null;
-    private _parentStorageService: StorageServiceActual | null = null;
+    private _parentStorageService: StorageService | null = null;
     private _domainStoreAdapter: DomainStoreAdapter | null = null;
     private _addons: StorageAddon[] = [];
     private _projectUri: string | undefined = undefined;
 
-    constructor(config: ProjectStorageConfig, parentStorageService: StorageServiceActual | null = null) {
+    constructor(config: ProjectStorageConfig, parentStorageService: StorageService | null = null) {
         this._config = config
         this._parentStorageService = parentStorageService;
 
@@ -167,7 +167,7 @@ export class ProjectStorageManager {
     get currentBranchName() {
         return this.config.deviceBranchName
     }
-    get parentStorageService(): StorageServiceActual | null {
+    get parentStorageService(): StorageService | null {
         return this._parentStorageService;
     }
     get projectUri(): string | undefined {
