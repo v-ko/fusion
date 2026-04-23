@@ -40,8 +40,9 @@ describe("ProjectStorageManager base functionality", () => {
         expect(projectStorageManager.onDeviceRepo).toBeDefined();
         expect(projectStorageManager.fileStore).toBeDefined();
         expect(projectStorageManager.onDeviceRepo.hashTree).toBeDefined();
-        expect(projectStorageManager.onDeviceRepo._commitGraph).toBeDefined();
-        expect(projectStorageManager.onDeviceRepo._commitGraph.branches()).toHaveLength(1);
+        const commitGraph = await projectStorageManager.onDeviceRepo.getCommitGraph();
+        expect(commitGraph).toBeDefined();
+        expect(commitGraph.branches()).toHaveLength(1);
 
         // Shutdown and reload
         await projectStorageManager.shutdown();

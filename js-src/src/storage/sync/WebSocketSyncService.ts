@@ -7,6 +7,14 @@
  * symmetric: local deltas are sent and ACKed, remote deltas are received,
  * applied, and ACKed.
  *
+ * Since `loadData` does **not** fire `onChanges`, the hydration delta is
+ * invisible to consumers wired via `store.onChanges`.  Only real user-action
+ * deltas trigger the callback.
+ *
+ * An optional `onFullStateReceived` callback (no arguments) is invoked
+ * after the full-state has been loaded into the store, for consumers
+ * that need to react to the initial snapshot (e.g. seeding a repository).
+ *
  * Wire protocol (JSON messages):
  *
  *     {"type": "full_state", "seq": <number>, "entities": [...]}
@@ -77,9 +85,9 @@ export class WebSocketSyncService implements StoreSyncService {
      * Open the WebSocket and complete the handshake.
      *
      * - Authority: sends `full_state` immediately after open.
-     * - Receiver: waits for the `full_state` message and loads it.
+     * - Receiver: waits for the `full_state` message.
      *
-     * Resolves once the store is synchronised and the message loop is
+     * Resolves once the handshake is complete and the message loop is
      * running.
      */
     async initialize(): Promise<void> {
@@ -109,7 +117,7 @@ export class WebSocketSyncService implements StoreSyncService {
                         ws.close();
                         return;
                     }
-                    this._applyFullState(msg);
+                    this._handleFullState(msg);
                     handshakeComplete = true;
                     resolve();
                     return;
@@ -139,9 +147,7 @@ export class WebSocketSyncService implements StoreSyncService {
     /**
      * Send a local delta to the remote peer.
      *
-     * Called by the store's `onChanges` callback (via the facade wiring)
-     * for non-remote-origin mutations.  The delta is sent immediately;
-     * returns a Promise that resolves when the remote peer ACKs.
+     * Returns a Promise that resolves when the remote peer ACKs.
      * Callers may ignore the promise for fire-and-forget semantics.
      */
     pushDelta(delta: Delta): Promise<void> {
@@ -185,17 +191,12 @@ export class WebSocketSyncService implements StoreSyncService {
     private _handleMessage(msg: WsSyncMessage): void {
         switch (msg.type) {
             case 'full_state':
-                // Re-sync (e.g. authority restart)
-                this._applyFullState(msg);
+                this._handleFullState(msg);
                 break;
 
             case 'delta': {
                 const delta = new Delta(msg.delta);
-                // Apply to store — onChanges fires synchronously here,
-                // updating the view model before we send the ACK.
-                this.store.applyDelta(delta, 'remote', true);
-                // ACK immediately — the store (and view state) are
-                // guaranteed to be updated by this point.
+                this.store.applyDelta(delta, 'remote');
                 this._send({ type: 'ack', seq: msg.seq });
                 this._seq = Math.max(this._seq, msg.seq);
                 break;
@@ -232,7 +233,7 @@ export class WebSocketSyncService implements StoreSyncService {
         this._send({ type: 'full_state', seq: this._seq, entities });
     }
 
-    private _applyFullState(msg: { seq: number; entities: SerializedEntityData[] }): void {
+    private _handleFullState(msg: { seq: number; entities: SerializedEntityData[] }): void {
         this._seq = msg.seq ?? 0;
         const entities = (msg.entities ?? []).map(
             (d: SerializedEntityData) => loadFromDict(d)

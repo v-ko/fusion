@@ -72,10 +72,7 @@ class Store:
             self._applying_internally = False
             self._loaded = True
 
-        delta = Delta.from_changes(changes)
-        if self.on_changes and not delta.is_empty():
-            self.on_changes(delta, origin)
-        return delta
+        return Delta.from_changes(changes)
 
     def apply_delta(self, delta: Delta, origin: str | None = None) -> Delta:
         """Apply all changes in a Delta to the store. Returns the applied delta."""

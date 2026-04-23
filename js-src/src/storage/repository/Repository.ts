@@ -103,7 +103,7 @@ export class Repository {
 
     _currentBranch: string;
     private _headStore: InMemoryStore | null = null;
-    _commitGraph: CommitGraph = new CommitGraph();  // Public only for testing purposes
+    private _commitGraph: CommitGraph = new CommitGraph();
     private _commitById: Map<string, Commit> = new Map();
     private _hashTree: HashTree | null = null;
 
@@ -162,6 +162,7 @@ export class Repository {
             return repo;
         }
 
+        // (ONLY IF CACHING ENABLED)
         if (headStoreData) {
             // Populate headStore from provided entity data (e.g. domain store)
             for (const entity of headStoreData) {
@@ -169,6 +170,22 @@ export class Repository {
             }
             log.info(`Populated headStore from provided data: ${headStoreData.length} entities`);
             repo._hashTree = await buildHashTree(repo.headStore);
+
+            // Populate the commit graph cache from the adapter so that
+            // getCommitGraph() returns the real graph (needed by sync/OPSS).
+            // Without this, the cached graph stays empty and sync sees no
+            // commits to replay, leaving the main-thread store empty.
+            const adapterCommitIds = allCommits.map(c => c.id);
+            const fullCommits = adapterCommitIds.length > 0
+                ? await repo._vcsAdapter.getCommits(adapterCommitIds)
+                : [];
+            for (const commit of fullCommits) {
+                repo._commitById.set(commit.id, commit);
+                repo._commitGraph.addCommit(commit.metadata());
+            }
+            for (const branch of allBranches) {
+                repo._commitGraph.setBranch(branch.name, branch.headCommitId);
+            }
         } else {
             // Initialize an empty hash tree before hydration so
             // _applyInternalUpdateToCache can update it incrementally.

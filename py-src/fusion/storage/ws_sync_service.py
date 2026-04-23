@@ -1,20 +1,30 @@
-"""Bidirectional WebSocket store sync.
+"""Bidirectional WebSocket store synchronization.
 
-A single class that operates as either *authority* (owns the canonical
-state, sends ``full_state`` on connect) or *receiver* (expects
-``full_state`` on connect, applies it).  After the initial handshake
-both roles are **symmetric**: local deltas are sent and ACKed, remote
-deltas are received, applied, and ACKed.
+Roles
+-----
+- **authority**: owns the canonical state; sends ``full_state`` on connect.
+- **receiver**: expects ``full_state`` on connect; applies it to its store.
 
-Transport-agnostic — the caller provides async ``send`` / ``receive``
-callables, so the class works with any WebSocket library (FastAPI,
-websockets, aiohttp, etc.).
+After the initial handshake both sides are symmetric — local deltas are
+sent and ACKed, remote deltas are received, applied, and ACKed.
 
-Wire protocol (JSON messages)::
+Wire protocol (JSON)::
 
     {"type": "full_state", "seq": <int>, "entities": [...]}
     {"type": "delta",      "seq": <int>, "delta": {DeltaData}}
     {"type": "ack",        "seq": <int>}
+
+Store interaction
+-----------------
+- Authority builds ``full_state`` via ``store.find()``.
+- Receiver hydrates via ``store.clear()`` + ``store.load_data()``.
+  ``load_data`` does **not** fire ``on_changes``, so only real
+  user-action deltas reach change listeners.
+- Both sides apply remote deltas with ``store.apply_delta(delta,
+  origin='remote')``.
+
+Transport-agnostic: the caller supplies async ``send``/``receive``
+callables, so it works with any WebSocket library.
 """
 
 from __future__ import annotations
@@ -27,8 +37,8 @@ from typing import Any
 
 from fusion.libs.model import dump_to_dict, load_from_dict
 from fusion.logging import get_logger
+from fusion.storage.base_store import Store
 from fusion.storage.delta import Delta, DeltaData
-from fusion.storage.in_memory_store import InMemoryStore
 
 log = get_logger(__name__)
 
@@ -54,22 +64,27 @@ class _PendingAck:
 class WebSocketSyncService:
     """Bidirectional store sync over a WebSocket connection.
 
-    Usage::
+    Usage (authority)::
 
         sync = WebSocketSyncService(store, role='authority')
-        store.on_changes = sync.on_store_changes   # wire the callback
-        await sync.run(ws_send, ws_receive)         # blocks until disconnect
+        await sync.run(ws_send, ws_receive)
+
+    Usage (receiver)::
+
+        sync = WebSocketSyncService(store, role='receiver')
+        store.on_changes = lambda delta, origin: handle(delta)
+        await sync.run(ws_send, ws_receive)
     """
 
     def __init__(
         self,
-        store: InMemoryStore,
+        store: Store,
         role: str,  # 'authority' | 'receiver'
     ) -> None:
         if role not in ("authority", "receiver"):
             raise ValueError(f"role must be 'authority' or 'receiver', got {role!r}")
 
-        self.store = store
+        self._store = store
         self.role = role
 
         self._lock = threading.Lock()  # protects _seq
@@ -105,11 +120,11 @@ class WebSocketSyncService:
         event.set()
 
     # ------------------------------------------------------------------
-    # Store callback (blocking until ACKed)
+    # Outbound helpers (for consumers that want to push deltas)
     # ------------------------------------------------------------------
 
     def on_store_changes(self, delta: Delta, origin: str | None = None) -> None:
-        """Chain into ``store.on_changes``.
+        """Convenience callback for wiring to ``store.on_changes``.
 
         Enqueues outbound deltas and blocks until the remote peer ACKs.
         Skips remote-origin deltas (echo prevention).  Safe to call
@@ -120,10 +135,6 @@ class WebSocketSyncService:
         event = self._enqueue_delta(delta.asdict())
         if not event.wait(ACK_TIMEOUT):
             raise TimeoutError("on_store_changes: ACK timeout")
-
-    # ------------------------------------------------------------------
-    # Explicit async push
-    # ------------------------------------------------------------------
 
     async def push_delta(self, delta: Delta) -> None:
         """Send a delta and await until ACKed (async).
@@ -162,7 +173,7 @@ class WebSocketSyncService:
                 msg = await receive()
                 if msg.get("type") != "full_state":
                     raise ProtocolError(f"Expected full_state, got {msg.get('type')!r}")
-                self._apply_full_state(msg)
+                self._handle_full_state(msg)
 
             # --- Concurrent send + receive ---
             async with asyncio.TaskGroup() as tg:
@@ -218,7 +229,7 @@ class WebSocketSyncService:
                     msg.get("seq"),
                     list(msg["delta"].keys()),
                 )
-                self.store.apply_delta(delta, origin="remote")
+                self._store.apply_delta(delta, origin="remote")
                 await send({"type": "ack", "seq": msg["seq"]})
                 with self._lock:
                     self._seq = max(self._seq, msg["seq"])
@@ -231,7 +242,7 @@ class WebSocketSyncService:
                     self._resolve_event(pa.event)
 
             elif msg_type == "full_state":
-                self._apply_full_state(msg)
+                self._handle_full_state(msg)
 
             else:
                 log.warning("Unknown WS message type: %s", msg_type)
@@ -241,12 +252,12 @@ class WebSocketSyncService:
     # ------------------------------------------------------------------
 
     def _full_state_message(self) -> dict[str, Any]:
-        entities = [dump_to_dict(e) for e in self.store.find()]
+        entities = [dump_to_dict(e) for e in self._store.find()]
         return {"type": "full_state", "seq": self._seq, "entities": entities}
 
-    def _apply_full_state(self, msg: dict[str, Any]) -> None:
+    def _handle_full_state(self, msg: dict[str, Any]) -> None:
         with self._lock:
             self._seq = msg.get("seq", 0)
         entities = [load_from_dict(d) for d in msg.get("entities", [])]
-        self.store.clear()
-        self.store.load_data(entities, origin="remote")
+        self._store.clear()
+        self._store.load_data(entities, origin="remote")

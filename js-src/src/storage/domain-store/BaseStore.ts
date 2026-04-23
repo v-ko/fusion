@@ -105,11 +105,7 @@ export abstract class Store {
             this._loaded = true;
         }
 
-        const delta = Delta.fromChanges(changes);
-        if (this.onChanges && !delta.isEmpty()) {
-            this.onChanges(delta, origin);
-        }
-        return delta;
+        return Delta.fromChanges(changes);
     }
 
     /** Apply a delta, firing onChanges once at the end with the given origin. */

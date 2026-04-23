@@ -16,7 +16,7 @@ classifiers = [
     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Operating System :: OS Independent",
 ]
-dependencies = ["attrs"]
+dependencies = ["attrs", "peewee"]
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-asyncio", "black", "isort", "pre-commit"]
