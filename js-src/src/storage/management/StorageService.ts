@@ -291,7 +291,7 @@ export class StorageService implements StorageServiceInterface {
         // PSM's syncDeltaToDomainStore is a no-op when no domain store is configured.
         // For commits originating from external FS changes (pulled by PSM's poll loop),
         // this writes back the same data — the backend PFM detects no diff and it's a no-op.
-        await repoManager.syncDeltaToDomainStore(commit.data().deltaData);
+        await repoManager.syncDeltaToDomainStore(commit.data().delta_data);
 
         return {
             type: 'commit',

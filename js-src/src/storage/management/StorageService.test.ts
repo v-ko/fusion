@@ -221,7 +221,7 @@ describe("StorageService base functionality", () => {
         expect(update.upsertedCommits!.length).toBe(1);
         expect(update.upsertedCommits![0].message).toBe("Test commit");
 
-        const newEntities = Object.values(update.upsertedCommits![0].deltaData!);
+        const newEntities = Object.values(update.upsertedCommits![0].delta_data!);
         expect(newEntities.length).toBe(2);
     });
 
@@ -286,7 +286,7 @@ describe("StorageService base functionality", () => {
         expect(commits1.length).toBe(2);
 
         // Identify c1 = the child of c0
-        const c1Meta = commits1.find(c => c.parentId === c0Id)!;
+        const c1Meta = commits1.find(c => c.parent_id === c0Id)!;
         expect(c1Meta).toBeDefined();
         const c1Id = c1Meta.id;
 
@@ -304,7 +304,7 @@ describe("StorageService base functionality", () => {
         expect(commits2.length).toBe(2);
 
         // Debug: let's see what we actually got
-        console.log('Commits after c2:', commits2.map(c => ({ id: c.id, parentId: c.parentId, timestamp: c.timestamp })));
+        console.log('Commits after c2:', commits2.map(c => ({ id: c.id, parentId: c.parent_id, timestamp: c.timestamp })));
         console.log('Expected c0Id:', c0Id, 'c1Id:', c1Id);
 
         // c0 should be deleted after squash
@@ -314,12 +314,12 @@ describe("StorageService base functionality", () => {
         // c1 should be updated with c0's parent (empty string) and aggregated delta
         const c1Updated = commits2.find(c => c.id === c1Id)!;
         expect(c1Updated).toBeDefined();
-        expect(c1Updated.parentId).toBe(''); // Should now have c0's parent (empty string)
+        expect(c1Updated.parent_id).toBe(''); // Should now have c0's parent (empty string)
 
         // c2 should remain unchanged - find it by looking for commit that's not c1
         const c2AfterSquash = commits2.find(c => c.id !== c1Id)!;
         expect(c2AfterSquash).toBeDefined();
-        expect(c2AfterSquash.parentId).toBe(c1Id); // Still points to c1
+        expect(c2AfterSquash.parent_id).toBe(c1Id); // Still points to c1
         const c2Id = c2AfterSquash.id;
 
         // The commit IDs should be c1 and c2
@@ -329,7 +329,7 @@ describe("StorageService base functionality", () => {
         expect(commitIds2.has(c2Id)).toBe(true);  // c2 kept
 
         // Head should still point to c2
-        const headId = u2.commitGraph.branches.find(b => b.name === "dev1")!.headCommitId!;
+        const headId = u2.commitGraph.branches.find(b => b.name === "dev1")!.head_commit_id!;
         expect(headId).toBe(c2Id);
 
         // Cleanup of Date.now spy handled by afterEach via jest.restoreAllMocks()

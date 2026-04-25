@@ -36,14 +36,14 @@ export class CommitGraph {
             throw new Error("Branch already exists: " + branchName);
         }
 
-        this._branches.push({ name: branchName, headCommitId: null });
+        this._branches.push({ name: branchName, head_commit_id: null });
     }
     setBranch(branchName: string, headCommitId: string | null) {
         let branch = this._branches.find(b => b.name === branchName);
         if (!branch) {
-            this._branches.push({ name: branchName, headCommitId });
+            this._branches.push({ name: branchName, head_commit_id: headCommitId });
         } else {
-            branch.headCommitId = headCommitId;
+            branch.head_commit_id = headCommitId;
         }
     }
     removeBranch(branchName: string) {
@@ -66,10 +66,10 @@ export class CommitGraph {
         if (!branch) {
             throw new Error("[headCommit] Branch not found: " + branchName);
         }
-        if (branch.headCommitId === null) {
+        if (branch.head_commit_id === null) {
             return null;
         }
-        let commit = this._commitsById.get(branch.headCommitId);
+        let commit = this._commitsById.get(branch.head_commit_id);
         if (!commit) {
             throw new Error("Commit not found");
         }
@@ -146,11 +146,11 @@ export class CommitGraph {
         if (!branch) {
                 throw new Error("[branchCommits] Branch not found: " + branchName);
         }
-        if (!branch.headCommitId) {
+        if (!branch.head_commit_id) {
             return [];
         }
 
-        let commit = this.commit(branch.headCommitId);
+        let commit = this.commit(branch.head_commit_id);
         if (!commit) {
             throw new Error("Head commit not found");
         }

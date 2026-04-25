@@ -150,7 +150,7 @@ export class IndexedDBVcsAdapter implements VcsAdapter {
                         const delta = await deltasStore.get(commitData.id);
                         if (delta) {
                             // commitData.deltaData = delta.delta;
-                            commits.push(new Commit({...commitData, deltaData: delta.delta}));
+                            commits.push(new Commit({...commitData, delta_data: delta.delta}));
                         } else {
                             log.error('Delta not found for commit ' + commitData.id);
                         }
@@ -201,7 +201,7 @@ export class IndexedDBVcsAdapter implements VcsAdapter {
         for (let commit of updatedCommits) {
             await commitsStore.delete(commit.id);
             await deltasStore.delete(commit.id);
-            await commitsStore.add(commit.metadata());
+            await commitsStore.add(commit.metadata().data());
             if (!commit.deltaData) {
                 throw new Error('Delta data missing for updated commit ' + commit.id);
             }
@@ -211,7 +211,7 @@ export class IndexedDBVcsAdapter implements VcsAdapter {
         // Add new commits
         for (let commit of addedCommits) {
             log.info('Adding commit', commit)
-            await commitsStore.add(commit.metadata());
+            await commitsStore.add(commit.metadata().data());
             if (!commit.deltaData) {
                 throw new Error('Delta data missing for commit ' + commit.id);
             }

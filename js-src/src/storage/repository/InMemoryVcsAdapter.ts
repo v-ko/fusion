@@ -59,14 +59,14 @@ export class InMemoryVcsAdapter implements VcsAdapter {
         // Add new branches
         for (const branch of addedBranches) {
             this._commitGraph.createBranch(branch.name);
-            if (branch.headCommitId) {
-                this._commitGraph.setBranch(branch.name, branch.headCommitId);
+            if (branch.head_commit_id) {
+                this._commitGraph.setBranch(branch.name, branch.head_commit_id);
             }
         }
 
         // Update branches
         for (const branch of updatedBranches) {
-            this._commitGraph.setBranch(branch.name, branch.headCommitId);
+            this._commitGraph.setBranch(branch.name, branch.head_commit_id);
         }
 
         // Remove branches

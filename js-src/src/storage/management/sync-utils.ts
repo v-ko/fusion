@@ -374,9 +374,9 @@ export async function squashBranchHistory(
     // Build updated K: parentId changes to parent(J), snapshotHash stays (K end-state), delta becomes Δ(J..K)
     const updatedK = new Commit({
         id: Kfull.id,
-        parentId: Jmeta.parentId ?? null,
-        snapshotHash: Kfull.snapshotHash,     // end state unchanged
-        deltaData: aggregatedDelta.data,      // composed J..K
+        parent_id: Jmeta.parentId ?? null,
+        snapshot_hash: Kfull.snapshotHash,     // end state unchanged
+        delta_data: aggregatedDelta.data,      // composed J..K
         message: Kfull.message,               // or "squash J..K"
         timestamp: Kfull.timestamp            // keep K's timestamp
     });
@@ -393,9 +393,9 @@ export async function squashBranchHistory(
     }
     const kMetaNew = new CommitMetadata({
         ...kMetaOld.data(),
-        parentId: Jmeta.parentId,
+        parent_id: Jmeta.parentId,
         // snapshotHash/timestamp/message remain aligned with updatedK
-        snapshotHash: updatedK.snapshotHash,
+        snapshot_hash: updatedK.snapshotHash,
         timestamp: updatedK.timestamp,
         message: updatedK.message
     });

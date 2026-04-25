@@ -184,7 +184,7 @@ export class Repository {
                 repo._commitGraph.addCommit(commit.metadata());
             }
             for (const branch of allBranches) {
-                repo._commitGraph.setBranch(branch.name, branch.headCommitId);
+                repo._commitGraph.setBranch(branch.name, branch.head_commit_id);
             }
         } else {
             // Initialize an empty hash tree before hydration so
@@ -206,7 +206,7 @@ export class Repository {
             addedCommits: [],
             removedCommits: [],
             updatedCommits: [],
-            addedBranches: [{ name: repo._currentBranch, headCommitId: null }],
+            addedBranches: [{ name: repo._currentBranch, head_commit_id: null }],
             updatedBranches: [],
             removedBranches: []
         });
@@ -290,9 +290,9 @@ export class Repository {
         }
         let commit = new Commit({
             id: createId(),
-            parentId: parentId,
-            snapshotHash: snapshotHash,
-            deltaData: appliedDelta.data,
+            parent_id: parentId,
+            snapshot_hash: snapshotHash,
+            delta_data: appliedDelta.data,
             message: message,
             timestamp: Date.now()
         })
@@ -569,7 +569,7 @@ export class Repository {
             cacheGraph.createBranch(branch.name)
         })
         updatedBranches.forEach((branch) => {
-            cacheGraph.setBranch(branch.name, branch.headCommitId)
+            cacheGraph.setBranch(branch.name, branch.head_commit_id)
         })
         removedBranches.forEach((branch) => {
             if (branch.name === this._currentBranch) {

@@ -229,7 +229,7 @@ In short:
 - Main deals with app configuration variability. Can hold everything really if the app is small enough.
 - The facade is the scope for accessing functionality within the app without tightly coupling everything. It wires its children if needed and can hold references to helpers. Avoid putting logic here.
 - It can be composed of domains if it gets really big.
-- Views have access to the facade, and actions. They should not do blocking calls
+- Views have access to the facade (respectively services), and actions. They should not do heavy calls.
 - Actions are pure functions and only get passed ViewStates, Stores and plain data arguments.
 - Procedures are sequences of actions and other effects that can involve async operations, actions. Basically any orchestration flows.
 - Services should receive their dependencies on construction and be wired on construction or by their parent (scope) where needed. They can invoke actions and procedures, but should mark them with issuer=service.

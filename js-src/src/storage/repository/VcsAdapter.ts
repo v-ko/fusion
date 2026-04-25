@@ -3,7 +3,7 @@ import { CommitGraph } from "../version-control/CommitGraph";
 
 export interface BranchMetadata {
     name: string;
-    headCommitId: string | null;
+    head_commit_id: string | null;
 }
 
 export interface InternalRepoUpdateNoDeltas {
