@@ -169,11 +169,10 @@ export class StorageServiceProxy {
         this._setState({ connectionPhase: 'ready' });
     }
 
-    async setupInSharedWorker(sharedWorkerUrl: string) {
+    async setupInSharedWorker(worker: SharedWorker) {
         log.info('Setting up storage service via SharedWorker');
         this._setState({ connectionPhase: 'connecting' });
 
-        const worker = new SharedWorker(sharedWorkerUrl, { type: 'module' });
         this._sharedWorker = worker;
         const service = Comlink.wrap<StorageServiceInterface>(worker.port);
 

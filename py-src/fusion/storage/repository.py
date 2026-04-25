@@ -300,11 +300,20 @@ class Repository:
         self._hash_tree = build_hash_tree(self._head_store)
 
         # Verify integrity
-        snapshot_hash = self._hash_tree.root_hash()
         last_commit = commits[-1] if commits else None
-        if last_commit and snapshot_hash != last_commit.snapshot_hash:
-            raise RepositoryIntegrityError(
-                "Snapshot hash mismatch after hydration from VcsAdapter"
-            )
+        if last_commit and last_commit.snapshot_hash:
+            snapshot_hash = self._hash_tree.root_hash()
+            if snapshot_hash != last_commit.snapshot_hash:
+                log.error(
+                    "Snapshot hash mismatch: computed=%s, stored=%s, "
+                    "commit_id=%s, entity_count=%d",
+                    snapshot_hash,
+                    last_commit.snapshot_hash,
+                    last_commit.id,
+                    len(list(self._head_store.find())),
+                )
+                raise RepositoryIntegrityError(
+                    "Snapshot hash mismatch after hydration from VcsAdapter"
+                )
 
         self._commit_graph = remote_graph

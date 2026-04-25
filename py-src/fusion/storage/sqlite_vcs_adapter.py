@@ -19,22 +19,22 @@ _ALL_MODELS: list[type[pw.Model]] = []
 
 
 class CommitRow(pw.Model):
-    id = pw.TextField(primary_key=True)
-    parent_id = pw.TextField(default="")
-    snapshot_hash = pw.TextField(default="")
-    timestamp = pw.DoubleField(default=0)
-    message = pw.TextField(default="")
-    delta_data = pw.TextField(default="{}")  # JSON
+    id: str = pw.TextField(primary_key=True)  # type: ignore[assignment]
+    parent_id: str = pw.TextField(default="")  # type: ignore[assignment]
+    snapshot_hash: str = pw.TextField(default="")  # type: ignore[assignment]
+    timestamp: float = pw.DoubleField(default=0)  # type: ignore[assignment]
+    message: str = pw.TextField(default="")  # type: ignore[assignment]
+    delta_data: str = pw.TextField(default="{}")  # type: ignore[assignment]
 
 
 class SnapshotRow(pw.Model):
-    commit_id = pw.TextField(primary_key=True)
-    data = pw.TextField()  # JSON
+    commit_id: str = pw.TextField(primary_key=True)  # type: ignore[assignment]
+    data: str = pw.TextField()  # type: ignore[assignment]
 
 
 class BranchRow(pw.Model):
-    name = pw.TextField(primary_key=True)
-    head_commit_id = pw.TextField(null=True)
+    name: str = pw.TextField(primary_key=True)  # type: ignore[assignment]
+    head_commit_id: str | None = pw.TextField(null=True)  # type: ignore[assignment]
 
 
 _ALL_MODELS = [CommitRow, SnapshotRow, BranchRow]

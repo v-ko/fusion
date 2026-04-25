@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from typing import Any
 
 from fusion import get_logger
+from fusion.libs.canonical_json import canonical_json
 from fusion.libs.model import Entity, dump_to_dict
 from fusion.storage.base_store import Store
 from fusion.storage.change import ChangeTypes
@@ -17,34 +17,9 @@ class HangingSubtreesError(Exception):
     pass
 
 
-def _sort_object_properties(obj: Any, depth: int = 1) -> Any:
-    """Sort dict keys recursively up to 3 levels to get deterministic JSON."""
-    if depth > 3:
-        raise ValueError("Depth exceeded: supports sorting up to 3 levels deep only.")
-
-    if isinstance(obj, list):
-        return [
-            _sort_object_properties(item, depth + 1) if isinstance(item, dict) else item
-            for item in obj
-        ]
-
-    if not isinstance(obj, dict):
-        return obj
-
-    sorted_dict: dict[str, Any] = {}
-    for key in sorted(obj.keys()):
-        value = obj[key]
-        if isinstance(value, (dict, list)):
-            sorted_dict[key] = _sort_object_properties(value, depth + 1)
-        else:
-            sorted_dict[key] = value
-    return sorted_dict
-
-
 def _get_entity_data_string(entity: Entity) -> str:
     data = dump_to_dict(entity)
-    sorted_data = _sort_object_properties(data)
-    return json.dumps(sorted_data, ensure_ascii=False)
+    return canonical_json(data)
 
 
 def _hash(data: str, data_for_concat: list[str] | None = None) -> str:
@@ -240,7 +215,7 @@ class HashTree:
 
         if parent is None:
             # Parent not in the tree yet — buffer for later reattachment
-            log.info("Parent not found, adding to tmp subtrees: %s", node.parent_id)
+            # log.info("Parent not found, adding to tmp subtrees: %s", node.parent_id)
             self._tmp_subtrees.setdefault(node.parent_id, []).append(node)
             return
 
