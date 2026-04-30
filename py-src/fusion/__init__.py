@@ -9,6 +9,7 @@ from fusion.loop import MainLoop, NoMainLoop
 __version__ = importlib.metadata.version("python-fusion")
 
 from fusion.libs.model import Entity, entity_type
+from fusion.libs.procedure import procedure
 
 # from fusion.state_manager import FusionStateManager
 from fusion.loop import main_loop, set_main_loop
