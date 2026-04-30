@@ -27,6 +27,12 @@ class MissingBranchError(Exception):
     pass
 
 
+class EmptyRepositoryError(Exception):
+    """Raised when opening a repository that has no branches/commits."""
+
+    pass
+
+
 class Repository:
     """Python port of the TS Repository.
 
@@ -84,6 +90,12 @@ class Repository:
         repo = Repository(vcs_adapter, branch_name)
 
         commit_graph = repo._vcs_adapter.get_commit_graph()
+
+        if not commit_graph.branches():
+            raise EmptyRepositoryError(
+                "Repository has no branches — it may not have been created yet."
+            )
+
         branch = commit_graph.branch(branch_name)
         if branch is None:
             all_branches = commit_graph.branches()
@@ -98,7 +110,7 @@ class Repository:
             repo._hash_tree = build_hash_tree(repo._head_store)
         else:
             repo._hash_tree = build_hash_tree(repo._head_store)
-            repo._hydrate_from_adapter()
+            repo._hydrate_from_adapter(commit_graph)
 
         return repo
 
@@ -275,9 +287,9 @@ class Repository:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _hydrate_from_adapter(self) -> None:
+    def _hydrate_from_adapter(self, commit_graph: CommitGraph | None = None) -> None:
         """Replay all commits from the VcsAdapter onto the head store."""
-        remote_graph = self._vcs_adapter.get_commit_graph()
+        remote_graph = commit_graph or self._vcs_adapter.get_commit_graph()
 
         # Get branch commits in order
         branch = remote_graph.branch(self._current_branch)
