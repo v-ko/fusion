@@ -261,7 +261,7 @@ export class HashTree {
         // If some of the tmp subtree roots have this node as a parent
         // reattach them properly
         if (this._tmpSubtrees[node.entityId]) {
-            log.info('Reattaching tmp subtrees', node.entityId)
+            // log.info('Reattaching tmp subtrees', node.entityId)
             let subtree = this._tmpSubtrees[node.entityId];
             delete this._tmpSubtrees[node.entityId];
 

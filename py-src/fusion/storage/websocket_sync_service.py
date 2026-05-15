@@ -30,9 +30,7 @@ callables, so it works with any WebSocket library.
 from __future__ import annotations
 
 import asyncio
-import threading
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
 from typing import Any
 
 from fusion.libs.model import dump_to_dict, load_from_dict
@@ -51,14 +49,6 @@ ACK_TIMEOUT = 5.0  # seconds
 
 class ProtocolError(Exception):
     """Raised on protocol-level errors during the WebSocket sync."""
-
-
-@dataclass
-class _PendingAck:
-    """Tracks an outbound delta waiting for acknowledgement."""
-
-    future: asyncio.Future[None]
-    event: threading.Event = field(default_factory=threading.Event)
 
 
 class WebSocketSyncService:
@@ -80,73 +70,48 @@ class WebSocketSyncService:
         self,
         store: Store,
         role: str,  # 'authority' | 'receiver'
+        on_ready: Callable[[], None] | None = None,
     ) -> None:
         if role not in ("authority", "receiver"):
             raise ValueError(f"role must be 'authority' or 'receiver', got {role!r}")
 
         self._store = store
         self.role = role
+        self._on_ready = on_ready
 
-        self._lock = threading.Lock()  # protects _seq
         self._seq: int = 0
-        self._outbound: asyncio.Queue[tuple[int, DeltaData, threading.Event]] = (
+        self._outbound: asyncio.Queue[tuple[int, DeltaData, asyncio.Future[None]]] = (
             asyncio.Queue()
         )
-        self._pending_acks: dict[int, _PendingAck] = {}
-        self._running = False
+        self._pending_acks: dict[int, asyncio.Future[None]] = {}
+        self.running = False
         self._loop: asyncio.AbstractEventLoop | None = None
 
     # ------------------------------------------------------------------
-    # Internal: enqueue a delta for sending
+    # Outbound
     # ------------------------------------------------------------------
 
-    def _enqueue_delta(self, delta_data: DeltaData) -> threading.Event:
-        """Create an event, bump seq, enqueue to outbound. Thread-safe."""
-        event = threading.Event()
-        with self._lock:
-            self._seq += 1
-            seq = self._seq
+    def push_delta(self, delta: Delta) -> asyncio.Future[None]:
+        """Enqueue a delta for sending. Returns a Future that resolves on ACK.
 
-        item = (seq, delta_data, event)
-        if self._loop is not None and self._loop.is_running():
-            self._loop.call_soon_threadsafe(self._outbound.put_nowait, item)
+        Fire-and-forget is fine — ignore the returned future if you don't
+        need ACK confirmation. Must be called from the event loop thread.
+        """
+        self._seq += 1
+        seq = self._seq
+
+        future: asyncio.Future[None]
+        if self._loop is not None:
+            future = self._loop.create_future()
         else:
-            self._outbound.put_nowait(item)
+            future = asyncio.get_event_loop().create_future()
 
-        return event
+        if not self.running:
+            future.cancel()
+            return future
 
-    def _resolve_event(self, event: threading.Event) -> None:
-        """Signal that one outbound delta has been ACKed."""
-        event.set()
-
-    # ------------------------------------------------------------------
-    # Outbound helpers (for consumers that want to push deltas)
-    # ------------------------------------------------------------------
-
-    def on_store_changes(self, delta: Delta, origin: str | None = None) -> None:
-        """Convenience callback for wiring to ``store.on_changes``.
-
-        Enqueues outbound deltas and blocks until the remote peer ACKs.
-        Skips remote-origin deltas (echo prevention).  Safe to call
-        from any thread (the async send loop runs on the event loop).
-        """
-        if origin == "remote" or not self._running:
-            return
-        event = self._enqueue_delta(delta.asdict())
-        if not event.wait(ACK_TIMEOUT):
-            raise TimeoutError("on_store_changes: ACK timeout")
-
-    async def push_delta(self, delta: Delta) -> None:
-        """Send a delta and await until ACKed (async).
-
-        Must be called from the same event loop as ``run()``.
-        """
-        if not self._running:
-            raise RuntimeError("WebSocketSyncService is not running")
-        event = self._enqueue_delta(delta.asdict())
-        # Poll until the event is set (bridging threading.Event → async)
-        while not event.is_set():
-            await asyncio.sleep(0.01)
+        self._outbound.put_nowait((seq, delta.asdict(), future))
+        return future
 
     # ------------------------------------------------------------------
     # Main loop
@@ -155,6 +120,10 @@ class WebSocketSyncService:
     async def run(self, send: SendFn, receive: ReceiveFn) -> None:
         """Run the sync protocol on an established connection.
 
+        Automatically wires the store's on_changes callback to push local
+        deltas outbound (skipping remote-origin). The callback is removed
+        on exit.
+
         Blocks until the connection is closed or an unrecoverable error
         occurs.
 
@@ -162,8 +131,21 @@ class WebSocketSyncService:
             send:    Async callable — send a JSON-serialisable dict.
             receive: Async callable — return the next parsed JSON message.
         """
+        if self.running:
+            raise RuntimeError(
+                "run() called on an already-running WebSocketSyncService. "
+                "Each instance supports only one concurrent connection."
+            )
+
         self._loop = asyncio.get_running_loop()
-        self._running = True
+        self.running = True
+
+        def _outbound(delta: Delta, origin: str | None = None) -> None:
+            if origin == "remote" or not self.running:
+                return
+            self.push_delta(delta)
+
+        self._store.add_on_changes_callback(_outbound)
 
         try:
             # --- Handshake ---
@@ -175,18 +157,22 @@ class WebSocketSyncService:
                     raise ProtocolError(f"Expected full_state, got {msg.get('type')!r}")
                 self._handle_full_state(msg)
 
+            # Signal that handshake is complete and store is hydrated
+            if self._on_ready is not None:
+                self._on_ready()
+
             # --- Concurrent send + receive ---
             async with asyncio.TaskGroup() as tg:
                 tg.create_task(self._send_loop(send))
                 tg.create_task(self._receive_loop(send, receive))
         finally:
-            self._running = False
+            self._store.remove_on_changes_callback(_outbound)
+            self.running = False
             self._loop = None
-            # Cancel pending ACKs so flush callers don't hang
-            for pa in self._pending_acks.values():
-                if not pa.future.done():
-                    pa.future.cancel()
-                self._resolve_event(pa.event)
+            # Cancel pending ACKs so callers don't hang
+            for future in self._pending_acks.values():
+                if not future.done():
+                    future.cancel()
             self._pending_acks.clear()
 
     # ------------------------------------------------------------------
@@ -194,22 +180,20 @@ class WebSocketSyncService:
     # ------------------------------------------------------------------
 
     async def _send_loop(self, send: SendFn) -> None:
-        while self._running:
-            seq, delta_data, event = await self._outbound.get()
+        while self.running:
+            seq, delta_data, future = await self._outbound.get()
 
-            assert self._loop is not None
-            future: asyncio.Future[None] = self._loop.create_future()
-            self._pending_acks[seq] = _PendingAck(future=future, event=event)
+            self._pending_acks[seq] = future
 
             await send({"type": "delta", "seq": seq, "delta": delta_data})
 
             try:
-                await asyncio.wait_for(future, timeout=ACK_TIMEOUT)
+                await asyncio.wait_for(asyncio.shield(future), timeout=ACK_TIMEOUT)
             except asyncio.TimeoutError:
                 log.error("ACK timeout for seq %d", seq)
                 pa = self._pending_acks.pop(seq, None)
-                if pa is not None:
-                    self._resolve_event(pa.event)
+                if pa is not None and not pa.done():
+                    pa.cancel()
                 raise
 
     async def _receive_loop(
@@ -217,29 +201,20 @@ class WebSocketSyncService:
         send: SendFn,
         receive: ReceiveFn,
     ) -> None:
-        while self._running:
+        while self.running:
             msg = await receive()
             msg_type = msg.get("type")
 
             if msg_type == "delta":
                 delta = Delta.from_data(msg["delta"])
-                log.info(
-                    "WS %s received delta (seq=%s): %s",
-                    self.role,
-                    msg.get("seq"),
-                    list(msg["delta"].keys()),
-                )
                 self._store.apply_delta(delta, origin="remote")
                 await send({"type": "ack", "seq": msg["seq"]})
-                with self._lock:
-                    self._seq = max(self._seq, msg["seq"])
+                self._seq = max(self._seq, msg["seq"])
 
             elif msg_type == "ack":
-                pa = self._pending_acks.pop(msg["seq"], None)
-                if pa is not None:
-                    if not pa.future.done():
-                        pa.future.set_result(None)
-                    self._resolve_event(pa.event)
+                future = self._pending_acks.pop(msg["seq"], None)
+                if future is not None and not future.done():
+                    future.set_result(None)
 
             elif msg_type == "full_state":
                 self._handle_full_state(msg)
@@ -256,8 +231,7 @@ class WebSocketSyncService:
         return {"type": "full_state", "seq": self._seq, "entities": entities}
 
     def _handle_full_state(self, msg: dict[str, Any]) -> None:
-        with self._lock:
-            self._seq = msg.get("seq", 0)
+        self._seq = msg.get("seq", 0)
         entities = [load_from_dict(d) for d in msg.get("entities", [])]
         self._store.clear()
         self._store.load_data(entities, origin="remote")

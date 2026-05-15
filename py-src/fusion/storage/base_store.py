@@ -8,8 +8,40 @@ from fusion.storage.delta import Delta
 
 
 class Store:
-    on_changes: Callable[[Delta, str | None], None] | None = None
     _applying_internally: bool = False
+
+    def __init__(self) -> None:
+        self._on_changes_callbacks: list[Callable[[Delta, str | None], None]] = []
+
+    # --- on_changes multi-handler API ---
+
+    def add_on_changes_callback(
+        self, callback: Callable[[Delta, str | None], None]
+    ) -> None:
+        self._on_changes_callbacks.append(callback)
+
+    def remove_on_changes_callback(
+        self, callback: Callable[[Delta, str | None], None]
+    ) -> None:
+        self._on_changes_callbacks.remove(callback)
+
+    def _fire_on_changes(self, delta: Delta, origin: str | None = None) -> None:
+        for cb in self._on_changes_callbacks:
+            cb(delta, origin)
+
+    @property
+    def on_changes(self) -> Callable[[Delta, str | None], None] | None:
+        """Backward-compat: returns the fire method if callbacks are registered."""
+        if self._on_changes_callbacks:
+            return self._fire_on_changes
+        return None
+
+    @on_changes.setter
+    def on_changes(self, callback: Callable[[Delta, str | None], None] | None) -> None:
+        """Backward-compat: replaces all callbacks with a single one."""
+        self._on_changes_callbacks.clear()
+        if callback is not None:
+            self._on_changes_callbacks.append(callback)
 
     def insert_one(self, entity: Entity) -> Change:
         raise NotImplementedError
@@ -48,8 +80,8 @@ class Store:
         finally:
             self._applying_internally = False
 
-        if self.on_changes and not applied.is_empty():
-            self.on_changes(Delta.from_changes([applied]), origin)
+        if self._on_changes_callbacks and not applied.is_empty():
+            self._fire_on_changes(Delta.from_changes([applied]), origin)
         return applied
 
     def clear(self) -> None:
@@ -86,8 +118,8 @@ class Store:
         finally:
             self._applying_internally = False
 
-        if self.on_changes and not applied.is_empty():
-            self.on_changes(applied, origin)
+        if self._on_changes_callbacks and not applied.is_empty():
+            self._fire_on_changes(applied, origin)
         return applied
 
     def _apply_change_core(self, change: Change) -> Change:

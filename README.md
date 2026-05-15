@@ -233,3 +233,61 @@ In short:
 - Actions are pure functions and only get passed ViewStates, Stores and plain data arguments.
 - Procedures are sequences of actions and other effects that can involve async operations, actions. Basically any orchestration flows.
 - Services should receive their dependencies on construction and be wired on construction or by their parent (scope) where needed. They can invoke actions and procedures, but should mark them with issuer=service.
+
+## Procedures (Python, WIP)
+
+Procedures are the async counterpart to actions. Actions are synchronous and mutate state immediately. Procedures orchestrate work that involves waiting (I/O, delays, inference responses) — they run as asyncio Tasks on the Qt main thread.
+
+### Setup
+
+The Qt-asyncio integration must be installed before any procedure can run. This happens automatically when using `QtMainLoop`:
+
+```python
+from fusion.platform.qt_widgets.qt_main_loop import QtMainLoop
+
+app = QApplication(sys.argv)
+main_loop = QtMainLoop(app)  # installs the async event loop
+main_loop.run()
+```
+
+Under the hood, `QtAsyncEventLoop` integrates asyncio into Qt's event loop via `QTimer` (for scheduled callbacks) and `QSocketNotifier` (for I/O). Everything runs on the main thread — no cross-thread state access issues, same model as JavaScript.
+
+### Usage
+
+```python
+from fusion import procedure
+from fusion.libs.action import action
+
+@action('update_shapes')
+def update_shapes(overlay, shapes):
+    overlay.shapes = shapes
+
+@procedure
+async def run_experiment(facade):
+    screenshot = take_screenshot()
+    shapes = await detect_shapes(screenshot)  # suspends, Qt keeps running
+    update_shapes(facade.overlay, shapes)     # sync action, immediate
+```
+
+Calling a `@procedure` function schedules it as a Task and returns the Task immediately. It can be called from sync code (fire-and-forget) or awaited from other async code.
+
+### Guidelines
+
+- **Single thread**: Procedures run on the Qt main thread. No locks needed between procedures and actions.
+- **Actions inside procedures**: Call actions normally — they execute synchronously at the `await` yield points.
+- **Fire-and-forget**: Call from a Qt slot or callback — the Task runs in the background. Unhandled exceptions are logged automatically.
+- **Awaitable**: From other async code, `await my_procedure()` to get the result.
+- **Futures for external events**: Create an `asyncio.Future`, store it, `await` it. Resolve it from a callback (e.g. store change handler). This bridges event-driven callbacks into linear async flow.
+
+```python
+@procedure
+async def wait_for_inference(self):
+    self._future = asyncio.get_running_loop().create_future()
+    result = await asyncio.wait_for(self._future, timeout=120)
+    # ... use result
+
+def on_store_change(self, change):
+    # called by a store callback on the same thread
+    if self._future and not self._future.done():
+        self._future.set_result(change.data)
+```

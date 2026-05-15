@@ -83,8 +83,8 @@ class InMemoryStore(Store):
 
             self.upsert_to_cache(entity)
             change = Change.create(entity)
-            if self.on_changes and not self._applying_internally:
-                self.on_changes(Delta.from_changes([change]), None)
+            if self._on_changes_callbacks and not self._applying_internally:
+                self._fire_on_changes(Delta.from_changes([change]), None)
             return change
 
     def update_one(self, entity: Entity) -> Change:
@@ -96,11 +96,11 @@ class InMemoryStore(Store):
             self.upsert_to_cache(entity)
             change = Change.update(old_entity, entity)
             if (
-                self.on_changes
+                self._on_changes_callbacks
                 and not self._applying_internally
                 and not change.is_empty()
             ):
-                self.on_changes(Delta.from_changes([change]), None)
+                self._fire_on_changes(Delta.from_changes([change]), None)
             return change
 
     def remove_one(self, entity: Entity) -> Change:
@@ -110,8 +110,8 @@ class InMemoryStore(Store):
                 raise Exception(f"Cannot remove missing {entity}")
 
             change = Change.delete(old_entity)
-            if self.on_changes and not self._applying_internally:
-                self.on_changes(Delta.from_changes([change]), None)
+            if self._on_changes_callbacks and not self._applying_internally:
+                self._fire_on_changes(Delta.from_changes([change]), None)
             return change
 
     def find(

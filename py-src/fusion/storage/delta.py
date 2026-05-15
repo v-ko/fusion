@@ -72,8 +72,8 @@ def _change_reduces_to_none(change: Change) -> bool:
 class Delta:
     """A collection of Changes grouped by entity ID, with merge logic."""
 
-    def __init__(self, changes: dict[str, Change] | None = None):
-        self._changes: dict[str, Change] = changes or {}
+    def __init__(self, data: DeltaData | None = None):
+        self._data: DeltaData = data or {}
 
     @staticmethod
     def from_changes(changes: list[Change]) -> Delta:
@@ -84,22 +84,22 @@ class Delta:
 
     @staticmethod
     def from_data(data: DeltaData) -> Delta:
+        """Deserialize wire-format delta (values are [eid, reverse, forward] lists)."""
         changes: dict[str, Change] = {}
-        for entity_id, change_data in data.items():
-            eid, reverse, forward = change_data
-            changes[entity_id] = Change(eid, reverse, forward)
+        for eid, raw in data.items():
+            changes[eid] = Change(raw[0], raw[1], raw[2])
         return Delta(changes)
 
     def asdict(self) -> DeltaData:
-        return {eid: list(change.asdict()) for eid, change in self._changes.items()}
+        return {eid: list(change.asdict()) for eid, change in self._data.items()}
 
     def changes(self) -> Generator[Change, None, None]:
-        for change in self._changes.values():
+        for change in self._data.values():
             yield change
 
     def copy(self) -> Delta:
         new_changes: dict[str, Change] = {}
-        for eid, change in self._changes.items():
+        for eid, change in self._data.items():
             new_changes[eid] = Change(
                 change.entity_id,
                 deepcopy(change.reverse_component),
@@ -109,33 +109,33 @@ class Delta:
 
     def reversed(self) -> Delta:
         reversed_changes: dict[str, Change] = {}
-        for eid, change in self._changes.items():
+        for eid, change in self._data.items():
             reversed_changes[eid] = change.reversed()
         return Delta(reversed_changes)
 
     def add_change(self, change: Change) -> None:
         """Add a change, merging if one already exists for this entity."""
-        if change.entity_id in self._changes:
+        if change.entity_id in self._data:
             self.merge_change_with_priority(change)
         else:
-            self._changes[change.entity_id] = change
+            self._data[change.entity_id] = change
 
     def remove_change(self, entity_id: str) -> None:
-        if entity_id not in self._changes:
+        if entity_id not in self._data:
             raise KeyError(f"No change for entity {entity_id}")
-        del self._changes[entity_id]
+        del self._data[entity_id]
 
     def is_empty(self) -> bool:
-        for change in self._changes.values():
+        for change in self._data.values():
             if not change.is_empty():
                 return False
         return True
 
     def entity_ids(self) -> list[str]:
-        return list(self._changes.keys())
+        return list(self._data.keys())
 
     def change(self, entity_id: str) -> Change | None:
-        return self._changes.get(entity_id)
+        return self._data.get(entity_id)
 
     def merge_change_with_priority(self, change: Change) -> None:
         """Merge a new change into the existing delta for the same entity.
@@ -147,7 +147,7 @@ class Delta:
         4) Create > Delete: cancels out (removed entirely)
         5) Otherwise: log error
         """
-        first_change = self._changes.get(change.entity_id)
+        first_change = self._data.get(change.entity_id)
 
         if first_change is None:
             self.add_change(change)
@@ -186,7 +186,7 @@ class Delta:
             if _change_reduces_to_none(merged):
                 self.remove_change(change.entity_id)
             else:
-                self._changes[change.entity_id] = merged
+                self._data[change.entity_id] = merged
 
         # 4) Create > Delete
         elif first_ct == ChangeTypes.CREATE and next_ct == ChangeTypes.DELETE:

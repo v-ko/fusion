@@ -19,7 +19,9 @@ def _make_wired_store_and_sss(**kwargs) -> tuple[InMemoryStore, StoreSyncService
     """Create a store with SSS wired as the on_changes listener."""
     store = InMemoryStore()
     sss = StoreSyncService(store, **kwargs)
-    store.on_changes = lambda delta, origin: sss.on_store_changes(delta, origin)
+    store.add_on_changes_callback(
+        lambda delta, origin: sss.on_store_changes(delta, origin)
+    )
     return store, sss
 
 

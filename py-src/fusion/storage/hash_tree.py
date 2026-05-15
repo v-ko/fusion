@@ -224,7 +224,7 @@ class HashTree:
 
         # Reattach any pending children
         if node.entity_id in self._tmp_subtrees:
-            log.info("Reattaching tmp subtrees for %s", node.entity_id)
+            # log.info("Reattaching tmp subtrees for %s", node.entity_id)
             subtree = self._tmp_subtrees.pop(node.entity_id)
             for child in subtree:
                 self.insert_node(child)
