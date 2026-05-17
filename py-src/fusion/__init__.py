@@ -8,9 +8,8 @@ from fusion.loop import MainLoop, NoMainLoop
 
 __version__ = importlib.metadata.version("python-fusion")
 
-from fusion.libs.entity import Entity, entity_type
-from fusion.libs.entity.change import Change, ChangeTypes
-from fusion.libs.entity.delta import Delta
+from fusion.libs.model import Entity, entity_type
+from fusion.libs.procedure import procedure
 
 # from fusion.state_manager import FusionStateManager
 from fusion.loop import main_loop, set_main_loop
@@ -18,21 +17,6 @@ from fusion.loop import main_loop, set_main_loop
 line_spacing_in_pixels = 20
 _reproducible_ids = False
 _main_loop_exception_handler = None
-
-# class StateManagerWrapper:
-#     def __init__(self):
-#         self._fsm = FusionStateManager()
-
-#     def __setattr__(self, __name: str, __value: Any) -> None:
-#         return setattr(self._fsm, __name, __value)
-
-#     def __getattr__(self, __name: str):
-#         return getattr(self._fsm, __name)
-
-# fsm: FusionStateManager = StateManagerWrapper()
-
-# def swap_state_manager(manager: FusionStateManager):
-#     fsm._fsm = manager
 
 
 def call_delayed(

@@ -2,15 +2,15 @@ import { Delta, DeltaData } from "../../model/Delta";
 
 export interface CommitMetadataData {
     id: string;
-    parentId: string;
+    parent_id: string;
     message: string;
     timestamp: number;
-    snapshotHash: string;
-    deltaData?: never;  // Annotation trick to not allow passing Commit objects where CommitMetadata is expected
+    snapshot_hash: string;
+    delta_data?: never;  // Annotation trick to not allow passing Commit objects where CommitMetadata is expected
 }
 
-export interface CommitData extends Omit<CommitMetadataData, 'deltaData'> {
-    deltaData: DeltaData;
+export interface CommitData extends Omit<CommitMetadataData, 'delta_data'> {
+    delta_data: DeltaData;
 }
 
 export class CommitMetadata {
@@ -22,8 +22,8 @@ export class CommitMetadata {
 
     constructor(data: CommitMetadataData) {
         this.id = data.id;
-        this.parentId = data.parentId;
-        this.snapshotHash = data.snapshotHash;
+        this.parentId = data.parent_id;
+        this.snapshotHash = data.snapshot_hash;
         this.timestamp = data.timestamp;
         this.message = data.message;
     }
@@ -31,8 +31,8 @@ export class CommitMetadata {
     data(): CommitMetadataData {
         return {
             id: this.id,
-            parentId: this.parentId,
-            snapshotHash: this.snapshotHash,
+            parent_id: this.parentId,
+            snapshot_hash: this.snapshotHash,
             timestamp: this.timestamp,
             message: this.message,
         };
@@ -49,21 +49,21 @@ export class Commit {
 
     constructor(data: CommitData) {
         this.id = data.id;
-        this.parentId = data.parentId;
-        this.snapshotHash = data.snapshotHash;
+        this.parentId = data.parent_id;
+        this.snapshotHash = data.snapshot_hash;
         this.timestamp = data.timestamp;
         this.message = data.message;
-        this.deltaData = data.deltaData;
+        this.deltaData = data.delta_data;
     }
 
     data(): CommitData {
         return {
             id: this.id,
-            parentId: this.parentId,
-            snapshotHash: this.snapshotHash,
+            parent_id: this.parentId,
+            snapshot_hash: this.snapshotHash,
             timestamp: this.timestamp,
             message: this.message,
-            deltaData: this.deltaData,
+            delta_data: this.deltaData,
         };
     }
 
@@ -72,7 +72,7 @@ export class Commit {
     }
 
     metadata(): CommitMetadata {
-        let { deltaData, ...metadata } = this.data();
+        let { delta_data: deltaData, ...metadata } = this.data();
         return new CommitMetadata(metadata);
     }
 }

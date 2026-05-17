@@ -6,6 +6,13 @@ from PySide6.QtCore import QMetaObject, QObject, Qt, QTimer, Slot
 from PySide6.QtWidgets import QApplication
 
 from fusion.loop import MainLoop
+from fusion.platform.qt_widgets.qt_event_loop import install
+
+
+def _install_async_loop(app: QApplication) -> None:
+    """Automatically install the Qt-async event loop when a QtMainLoop is created."""
+
+    install(app)
 
 
 class ProxyCall(QObject):
@@ -29,6 +36,9 @@ class QtMainLoop(MainLoop):
         self.app = app
         self.queue_checksum = 0
         self.tmp_proxies_list = []
+
+        # Install Qt-integrated asyncio event loop so @procedure works
+        _install_async_loop(app)
 
     def call_delayed(
         self,

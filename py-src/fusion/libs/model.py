@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Type, TypeVar
+from typing import Type, TypeVar, dataclass_transform
 
 import attrs
 
@@ -10,6 +10,8 @@ from fusion.logging import get_logger
 from fusion.util import get_new_id
 
 log = get_logger(__name__)
+
+_EntityT = TypeVar("_EntityT", bound="Entity")
 entity_library = {}
 
 
@@ -34,6 +36,7 @@ def reset_entity_id_counter():
 T = TypeVar("T")
 
 
+@dataclass_transform()
 def entity_type(entity_class: Type[T], repr: bool = False) -> Type[T]:
     """A class decorator to register entities in the entity library for the
     purposes of serialization and deserialization. It applies attrs.define.
@@ -147,15 +150,9 @@ class Entity:
     def __copy__(self):
         return self.copy()
 
-    def copy(self) -> "Entity":
+    def copy(self: _EntityT) -> _EntityT:
         self_copy = type(self)(**self.asdict())
-        return self_copy
-
-    def with_id(self, new_id: str) -> Entity:
-        """Produce a copy with a changed id (since the id field is frozen)."""
-        self_dict = self.asdict()
-        self_dict["id"] = new_id
-        return type(self)(**self_dict)
+        return self_copy  # type: ignore[return-value]
 
     def asdict(self) -> dict:
         """Return the entity fields as a dict (non-recursive, shallow copy
@@ -180,7 +177,7 @@ class Entity:
         """Compute a Change between self (old) and other (new).
         Granularity: level-1 entity properties. If a level-1 key's value
         has changed, the whole key is included in the delta."""
-        from fusion.libs.entity.change import Change
+        from fusion.storage.change import Change
 
         if self.id != other.id:
             raise ValueError("Cannot create change from entities with different IDs")
@@ -207,7 +204,7 @@ class Entity:
 def transformed_entity(entity: Entity, change) -> Entity:
     """Apply a Change's forward component to an entity, producing a new entity.
     Only works with UPDATE changes."""
-    from fusion.libs.entity.change import ChangeTypes
+    from fusion.storage.change import ChangeTypes
 
     if entity.id != change.entity_id:
         raise ValueError("Cannot apply change from a different entity")

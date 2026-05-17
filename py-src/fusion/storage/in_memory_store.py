@@ -1,10 +1,12 @@
 from collections import defaultdict
 from collections.abc import Generator, Iterable
+from threading import RLock
 from typing import Any
 
-from fusion.libs.entity import Entity
-from fusion.libs.entity.change import Change
+from fusion.libs.model import Entity
 from fusion.storage.base_store import Store
+from fusion.storage.change import Change
+from fusion.storage.delta import Delta
 from fusion.util import find_many_by_props
 
 
@@ -16,6 +18,7 @@ class InMemoryStore(Store):
     ) -> None:
         super().__init__()
         self.types_for_cached_type_filtering = types_for_cached_type_filtering
+        self._lock = RLock()
 
         self._entity_cache: dict[str, Entity] = {}
         self._entity_cache_by_parent: defaultdict[str, set[Entity]] = defaultdict(set)
@@ -25,9 +28,11 @@ class InMemoryStore(Store):
 
     def clear(self) -> None:
         """Remove all entities from the store."""
-        self._entity_cache.clear()
-        self._entity_cache_by_parent.clear()
-        self._entity_cache_by_type.clear()
+        with self._lock:
+            self._entity_cache.clear()
+            self._entity_cache_by_parent.clear()
+            self._entity_cache_by_type.clear()
+            self._loaded = False
 
     def type_cache_supported_subclass(self, entity: Entity) -> type[Entity] | None:
         if not self.types_for_cached_type_filtering:
@@ -69,26 +74,45 @@ class InMemoryStore(Store):
         return entity
 
     def insert_one(self, entity: Entity) -> Change:
-        if entity.id in self._entity_cache:
-            raise Exception("Cannot insert {entity}, since it already exists")
+        with self._lock:
+            if entity.id in self._entity_cache:
+                raise Exception(
+                    f"Cannot insert entity with id={entity.id!r} ({type(entity).__name__}), "
+                    f"since it already exists"
+                )
 
-        self.upsert_to_cache(entity)
-        return Change.create(entity)
+            self.upsert_to_cache(entity)
+            change = Change.create(entity)
+            if self._on_changes_callbacks and not self._applying_internally:
+                self._fire_on_changes(Delta.from_changes([change]), None)
+            return change
 
     def update_one(self, entity: Entity) -> Change:
-        old_entity = self.pop_from_cache(entity.id)
-        if not old_entity:
-            raise Exception(f"Cannot update missing {entity}")
+        with self._lock:
+            old_entity = self.pop_from_cache(entity.id)
+            if not old_entity:
+                raise Exception(f"Cannot update missing {entity}")
 
-        self.upsert_to_cache(entity)
-        return Change.update(old_entity, entity)
+            self.upsert_to_cache(entity)
+            change = Change.update(old_entity, entity)
+            if (
+                self._on_changes_callbacks
+                and not self._applying_internally
+                and not change.is_empty()
+            ):
+                self._fire_on_changes(Delta.from_changes([change]), None)
+            return change
 
     def remove_one(self, entity: Entity) -> Change:
-        old_entity = self.pop_from_cache(entity.id)
-        if not old_entity:
-            raise Exception(f"Cannot remove missing {entity}")
+        with self._lock:
+            old_entity = self.pop_from_cache(entity.id)
+            if not old_entity:
+                raise Exception(f"Cannot remove missing {entity}")
 
-        return Change.delete(old_entity)
+            change = Change.delete(old_entity)
+            if self._on_changes_callbacks and not self._applying_internally:
+                self._fire_on_changes(Delta.from_changes([change]), None)
+            return change
 
     def find(
         self,
@@ -97,38 +121,47 @@ class InMemoryStore(Store):
         parent_id: str | None = None,
         **filter: Any,
     ) -> Generator[Entity, None, None]:
-        # If searching by id - there will be only one unique result (if any)
-        if id is not None:
-            try:
-                result = self._entity_cache.get(id)
-            except TypeError:
-                result = None
-            if result:
-                yield result
-            return
+        with self._lock:
+            # If searching by id - there will be only one unique result (if any)
+            if id is not None:
+                try:
+                    result = self._entity_cache.get(id)
+                except TypeError:
+                    result = None
+                if result:
+                    yield result
+                return
 
-        # If searching by parent_id - use the index to do it efficiently
-        search_set: Iterable[Entity]
-        if parent_id is not None:
-            try:
-                search_set = self._entity_cache_by_parent.get(parent_id, set())
-            except TypeError:
-                search_set = ()
-        else:
-            search_set = set(self._entity_cache.values())
-
-        # Searching by type is a special case
-        if type is not None:
-            if (
-                self.types_for_cached_type_filtering
-                and type in self.types_for_cached_type_filtering
-            ):
-                type_search_set = self._entity_cache_by_type.get(type, set())
-                search_set = set(search_set).intersection(type_search_set)
+            # If searching by parent_id - use the index to do it efficiently
+            search_set: Iterable[Entity]
+            if parent_id is not None:
+                try:
+                    search_set = self._entity_cache_by_parent.get(parent_id, set())
+                except TypeError:
+                    search_set = ()
             else:
-                search_set = (e for e in search_set if isinstance(e, type))
+                search_set = set(self._entity_cache.values())
 
-        # Apply the rest of the filter
-        if filter:
-            search_set = find_many_by_props(search_set, **filter)
-        yield from search_set
+            # Searching by type is a special case
+            if type is not None:
+                if (
+                    self.types_for_cached_type_filtering
+                    and type in self.types_for_cached_type_filtering
+                ):
+                    type_search_set = self._entity_cache_by_type.get(type, set())
+                    search_set = set(search_set).intersection(type_search_set)
+                else:
+                    search_set = (e for e in search_set if isinstance(e, type))
+
+            # Apply the rest of the filter
+            if filter:
+                search_set = find_many_by_props(search_set, **filter)
+            yield from search_set
+
+    def load_data(self, entities: list[Entity], origin: str | None = None) -> Delta:
+        with self._lock:
+            return super().load_data(entities, origin)
+
+    def apply_delta(self, delta: Delta, origin: str | None = None) -> Delta:
+        with self._lock:
+            return super().apply_delta(delta, origin)

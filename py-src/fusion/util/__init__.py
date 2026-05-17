@@ -100,3 +100,25 @@ def find_one_by_props(
         return None
 
     return items_found[0]
+
+
+def deep_merge(base: Mapping[str, Any], overrides: Mapping[str, Any]) -> dict:
+    """Return a new dict = ``base`` recursively overlaid with ``overrides``.
+
+    - dict-on-dict merges recursively;
+    - everything else (lists, scalars, ``None``) replaces the base value;
+    - keys present only in ``base`` are preserved;
+    - inputs are not mutated.
+
+    Note: ``None`` in ``overrides`` is a value, not a delete marker — some
+    settings legitimately accept ``None``. Use explicit removal at the call
+    site if you need delete semantics.
+    """
+    result: dict = dict(base)
+    for key, override_value in overrides.items():
+        base_value = result.get(key)
+        if isinstance(base_value, Mapping) and isinstance(override_value, Mapping):
+            result[key] = deep_merge(base_value, override_value)
+        else:
+            result[key] = override_value
+    return result

@@ -12,7 +12,7 @@ from pamet.util.url import Url
 import fusion
 from fusion.libs.action import on_actions_logged
 from fusion.libs.action.action_call import ActionCall, ActionRunStates
-from fusion.libs.entity import Entity
+from fusion.libs.model import Entity
 from fusion.libs.state import ViewState
 from fusion.util import Color, Point2D, Rectangle
 

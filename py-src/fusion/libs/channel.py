@@ -42,15 +42,18 @@ class Subscription:
 class Channel:
 
     def __init__(
-        self, name: str, index_key: Callable = None, filter_key: Callable = None
+        self,
+        name: str,
+        subchannel: Callable | None = None,
+        subchannel_classifier: Callable | None = None,
     ):
         self.name = name
-        self.index_key = index_key
-        self.filter_key = filter_key
+        self.subchannel = subchannel
+        self.subchannel_classifier = subchannel_classifier
         # self.message_stack = []
         self.subscriptions: Dict[tuple, Subscription] = {}  # by id
 
-        # if index_key:
+        # if subchannel:
         self.subs_index = defaultdict(list)  # Subscriptions by index_val
         self.non_indexed_subs = []  # Subscriptions without index_val
 
@@ -63,8 +66,8 @@ class Channel:
 
     @log.traced
     def push(self, message):
-        if self.filter_key:
-            if not self.filter_key(message):
+        if self.subchannel_classifier:
+            if not self.subchannel_classifier(message):
                 return
 
         # self.message_stack.append(message)
@@ -77,8 +80,8 @@ class Channel:
         #
 
         for sub_props, sub in self.subscriptions.items():
-            if self.index_key and sub.index_val is not MISSING:
-                if self.index_key(message) != sub.index_val:
+            if self.subchannel and sub.index_val is not MISSING:
+                if self.subchannel(message) != sub.index_val:
                     continue
 
             # log.info(f'Queueing {sub.handler=} for {message=} on'
@@ -120,7 +123,7 @@ class Channel:
     #     # for sub_props, sub in copy(self.subscriptions).items():
     #     #     # If the channel is not indexed or the subscriber does not filter
     #     #     # messages using the index - notify for all messages
-    #     #     if not self.index_key or sub.filter_val is MISSING:
+    #     #     if not self.subchannel or sub.filter_val is MISSING:
     #     #         messages = self.message_stack
     #     #     else:
     #     #         messages = self.index.get(sub.filter_val, [])
@@ -134,8 +137,8 @@ class Channel:
     #         # Copy the subscriptions we iterate over, because the list can
     #         # change while executing the actions and we don't want that
     #         for sub_props, sub in copy(self.subscriptions).items():
-    #             if self.index_key and sub.index_val is not MISSING:
-    #                 if self.index_key(message) != sub.index_val:
+    #             if self.subchannel and sub.index_val is not MISSING:
+    #                 if self.subchannel(message) != sub.index_val:
     #                     continue
 
     #             log.info(f'Calling {sub.handler=} for {message=} on'

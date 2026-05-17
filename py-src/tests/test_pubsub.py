@@ -1,6 +1,6 @@
 import fusion
 from fusion.libs.channel import Channel
-from fusion.libs.entity import Entity, entity_type
+from fusion.libs.model import Entity, entity_type
 from fusion.loop import NoMainLoop
 
 
@@ -9,7 +9,9 @@ def test_pubsub():
     fusion.set_main_loop(main_loop)
 
     channel = Channel(
-        "test_channel", index_key=lambda x: x.id, filter_key=lambda x: x.text != "NO"
+        "test_channel",
+        subchannel=lambda x: x.id,
+        subchannel_classifier=lambda x: x.text != "NO",
     )
 
     @entity_type

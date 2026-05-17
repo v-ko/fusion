@@ -61,12 +61,12 @@ abstract class BaseChannelBackend implements ChannelBackend {
     // Common method to handle incoming messages (local fanout in the same JS context)
     protected handleIncomingMessage(message: any): void {
         log.info(`Handling message for channel: ${this.channel.name}`, message);
-        if (this.channel.filterKey && !this.channel.filterKey(message)) {
-            log.info(`Message filtered out by filterKey: ${message}`);
+        if (this.channel.subchannelClassifier && !this.channel.subchannelClassifier(message)) {
+            log.info(`Message filtered out by subchannelClassifier: ${message}`);
             return;
         }
 
-        const messageIndex = this.channel.indexKey ? this.channel.indexKey(message) : null;
+        const messageIndex = this.channel.subchannel ? this.channel.subchannel(message) : null;
 
         // Handle indexed messages
         if (messageIndex !== null && this.indexedSubscriptions.has(messageIndex)) {
@@ -179,18 +179,18 @@ class BroadcastChannelBackend extends BaseChannelBackend {
 
 export class Channel {
     name: string;
-    indexKey: ((message: any) => any) | null;
-    filterKey: ((message: any) => boolean) | null;
+    subchannel: ((message: any) => any) | null;
+    subchannelClassifier: ((message: any) => boolean) | null;
     private backend: ChannelBackend;
 
     constructor(name: string, options: {
         backend?: 'local' | 'broadcast';
-        indexKey?: (message: any) => any;
-        filterKey?: (message: any) => boolean;
+        subchannel?: (message: any) => any;
+        subchannelClassifier?: (message: any) => boolean;
     } = {}) {
         this.name = name;
-        this.indexKey = options.indexKey || null;
-        this.filterKey = options.filterKey || null;
+        this.subchannel = options.subchannel || null;
+        this.subchannelClassifier = options.subchannelClassifier || null;
 
         if (CREATING_CHANNEL !== name) {
             throw new Error('Do not call Channel constructor directly, use fusion.libs.add() instead.');
@@ -244,8 +244,8 @@ export function addChannel(
     name: string,
     options: {
         backend?: 'local' | 'broadcast';
-        indexKey?: (message: any) => any;
-        filterKey?: (message: any) => boolean;
+        subchannel?: (message: any) => any;
+        subchannelClassifier?: (message: any) => boolean;
     } = {}
 ): Channel {
     log.info(`Adding channel: ${name}`);

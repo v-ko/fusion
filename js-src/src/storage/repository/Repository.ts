@@ -103,7 +103,7 @@ export class Repository {
 
     _currentBranch: string;
     private _headStore: InMemoryStore | null = null;
-    _commitGraph: CommitGraph = new CommitGraph();  // Public only for testing purposes
+    private _commitGraph: CommitGraph = new CommitGraph();
     private _commitById: Map<string, Commit> = new Map();
     private _hashTree: HashTree | null = null;
 
@@ -162,18 +162,37 @@ export class Repository {
             return repo;
         }
 
+        // (ONLY IF CACHING ENABLED)
         if (headStoreData) {
             // Populate headStore from provided entity data (e.g. domain store)
             for (const entity of headStoreData) {
                 repo.headStore.insertOne(entity);
             }
             log.info(`Populated headStore from provided data: ${headStoreData.length} entities`);
+            repo._hashTree = await buildHashTree(repo.headStore);
+
+            // Populate the commit graph cache from the adapter so that
+            // getCommitGraph() returns the real graph (needed by sync/OPSS).
+            // Without this, the cached graph stays empty and sync sees no
+            // commits to replay, leaving the main-thread store empty.
+            const adapterCommitIds = allCommits.map(c => c.id);
+            const fullCommits = adapterCommitIds.length > 0
+                ? await repo._vcsAdapter.getCommits(adapterCommitIds)
+                : [];
+            for (const commit of fullCommits) {
+                repo._commitById.set(commit.id, commit);
+                repo._commitGraph.addCommit(commit.metadata());
+            }
+            for (const branch of allBranches) {
+                repo._commitGraph.setBranch(branch.name, branch.head_commit_id);
+            }
         } else {
-            // Hydrate from VCS adapter (replay deltas)
+            // Initialize an empty hash tree before hydration so
+            // _applyInternalUpdateToCache can update it incrementally.
+            repo._hashTree = await buildHashTree(repo.headStore);
             await repo.hydrateCacheFromVcsAdapter();
         }
 
-        repo._hashTree = await buildHashTree(repo.headStore);
         log.info(`Repository opened with caching enabled. Using VCS adapter: ${config.name}`);
         return repo;
     }
@@ -187,7 +206,7 @@ export class Repository {
             addedCommits: [],
             removedCommits: [],
             updatedCommits: [],
-            addedBranches: [{ name: repo._currentBranch, headCommitId: null }],
+            addedBranches: [{ name: repo._currentBranch, head_commit_id: null }],
             updatedBranches: [],
             removedBranches: []
         });
@@ -246,7 +265,7 @@ export class Repository {
 
         log.info('Committing', delta, message)
         // Apply to the head store
-        const appliedDelta = this.headStore.applyDelta(delta, options.skipConflictingChanges === true);
+        const appliedDelta = this.headStore.applyDelta(delta, undefined, options.skipConflictingChanges === true);
 
         // Get snapshotHash
         try {
@@ -271,9 +290,9 @@ export class Repository {
         }
         let commit = new Commit({
             id: createId(),
-            parentId: parentId,
-            snapshotHash: snapshotHash,
-            deltaData: appliedDelta.data,
+            parent_id: parentId,
+            snapshot_hash: snapshotHash,
+            delta_data: appliedDelta.data,
             message: message,
             timestamp: Date.now()
         })
@@ -540,7 +559,7 @@ export class Repository {
             // Assert hash is correct
             let snapshotHash = this.hashTree.rootHash()
             if (snapshotHash !== remoteHeadCommit!.snapshotHash) {
-                console.log(remoteHeadCommit, this.hashTree)
+                log.error('Snapshot hash mismatch after pull. Remote head commit:', remoteHeadCommit, 'Hash tree root:', this.hashTree.rootHash())
                 throw new RepositoryIntegrityError("Snapshot hash mismatch after pull")
             }
         }
@@ -550,7 +569,7 @@ export class Repository {
             cacheGraph.createBranch(branch.name)
         })
         updatedBranches.forEach((branch) => {
-            cacheGraph.setBranch(branch.name, branch.headCommitId)
+            cacheGraph.setBranch(branch.name, branch.head_commit_id)
         })
         removedBranches.forEach((branch) => {
             if (branch.name === this._currentBranch) {
@@ -562,14 +581,6 @@ export class Repository {
 
     async eraseStorage(): Promise<void> {
         return this._vcsAdapter.eraseStorage();
-    }
-
-    async getProjectProperties(): Promise<object | null> {
-        return this._vcsAdapter.getProjectProperties();
-    }
-
-    async setProjectProperties(properties: object): Promise<void> {
-        return this._vcsAdapter.setProjectProperties(properties);
     }
 
     close() {

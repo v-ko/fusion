@@ -1,11 +1,35 @@
 import { Change } from "fusion/model/Change";
 import { Delta } from "fusion/model/Delta";
 import { ProjectStorageConfig } from "fusion/storage/management/ProjectStorageManager";
-import * as StorageServiceModule from "fusion/storage/management/StorageService";
+import { StorageServiceProxy, StorageProxyState } from "fusion/storage/management/StorageServiceProxy";
 import { clearInMemoryAdapterInstances, RepoUpdateData, VcsAdapterConfig } from "fusion/storage/repository/Repository";
 import { DummyNote, DummyPage } from "fusion/storage/test-utils";
 import { createId } from "fusion/util/base";
-import { addChannel, Channel } from "fusion/registries/Channel";
+import { clearChannels } from "fusion/registries/Channel";
+
+// Polyfill navigator.locks for Node test environment (FIFO, non-reentrant)
+{
+    const lockQueues = new Map<string, Promise<void>>();
+    const locksImpl = {
+        request: async (name: string, callback: () => Promise<any>) => {
+            const prev = lockQueues.get(name) ?? Promise.resolve();
+            let releaseLock!: () => void;
+            const next = new Promise<void>(r => { releaseLock = r; });
+            lockQueues.set(name, next);
+            await prev;
+            try {
+                return await callback();
+            } finally {
+                releaseLock();
+            }
+        },
+    };
+    if (typeof globalThis.navigator === 'undefined') {
+        (globalThis as any).navigator = { locks: locksImpl };
+    } else {
+        Object.defineProperty(globalThis.navigator, 'locks', { value: locksImpl, configurable: true });
+    }
+}
 
 
 const INMEM_PROJECT_STORAGE_CONFIG: VcsAdapterConfig = {
@@ -40,22 +64,12 @@ function waitForNextCall<T extends jest.Mock>(
 
 
 describe("StorageService base functionality", () => {
-    let storageService: StorageServiceModule.StorageService;
+    let storageService: StorageServiceProxy;
     let projectId: string;
     let projectStorageConfig: ProjectStorageConfig;
 
     beforeEach(async () => {
-        // To avoid mixing up events between tests, we need to have separate channels for each.
-        // So we mock the channel getter to return a unique channel for each test.
-        jest.spyOn(StorageServiceModule, 'getStorageUpdatesChannel').mockImplementation((): Channel => {
-            const testSpecificName = `${StorageServiceModule.LOCAL_STORAGE_UPDATE_CHANNEL}-${createId()}`;
-            const backend = (typeof BroadcastChannel !== 'undefined') ? 'broadcast' : 'local';
-            return addChannel(testSpecificName, { backend: backend });
-        });
-
-        let bc = new BroadcastChannel(StorageServiceModule.LOCAL_STORAGE_UPDATE_CHANNEL + '2');
-
-        storageService = new StorageServiceModule.StorageService();
+        storageService = new StorageServiceProxy();
         storageService.setupInMainThread();
         projectId = 'test-project-id';
 
@@ -71,15 +85,16 @@ describe("StorageService base functionality", () => {
     });
 
     afterEach(async () => {
+        storageService.disconnect();
+        clearChannels();
+        clearInMemoryAdapterInstances();
         jest.useRealTimers();
         jest.restoreAllMocks();
-        clearInMemoryAdapterInstances();
-        storageService.disconnect();
     });
 
     test("setStateChangeHandler emits initial and updated snapshots", () => {
-        const observedStates: StorageServiceModule.StorageServiceRuntimeState[] = [];
-        const observedService = new StorageServiceModule.StorageService();
+        const observedStates: StorageProxyState[] = [];
+        const observedService = new StorageServiceProxy();
 
         observedService.setStateChangeHandler((nextState) => {
             observedStates.push(nextState);
@@ -88,65 +103,9 @@ describe("StorageService base functionality", () => {
 
         expect(observedStates.length).toBeGreaterThanOrEqual(2);
         expect(observedStates[0].connectionPhase).toBe('uninitialized');
-        expect(observedStates[observedStates.length - 1].connectionPhase).toBe('main-thread-ready');
+        expect(observedStates[observedStates.length - 1].connectionPhase).toBe('ready');
 
         observedService.disconnect();
-    });
-
-    test("timed out remote call marks the wrapper disconnected", async () => {
-        jest.useFakeTimers();
-
-        const pendingRemote = {
-            createProject: jest.fn(() => new Promise<string>(() => { })),
-            disconnect: jest.fn(),
-        };
-
-        (storageService as any)._isWrapper = true;
-        (storageService as any)._service = pendingRemote;
-        (storageService as any).setState({
-            backend: 'service-worker',
-            connectionPhase: 'ready',
-            connected: true,
-            usingServiceWorker: true,
-        });
-
-        const createPromise = storageService.createProject(projectId, projectStorageConfig);
-        const createRejection = expect(createPromise).rejects.toThrow('createProject timed out after 10000ms');
-        await jest.advanceTimersByTimeAsync(10000);
-
-        await createRejection;
-        expect(storageService.state.connectionPhase).toBe('disconnected');
-        expect(storageService.state.lastError?.code).toBe('storage-call-timeout');
-        expect(storageService.state.lastError?.operation).toBe('createProject');
-    });
-
-    test("disconnected remote call reconnects once before executing", async () => {
-        const remoteCreate = jest.fn(async () => { return 'inmemory:///test-project'; });
-        const reconnectSpy = jest.spyOn(storageService as any, 'reconnectToWorker').mockImplementation(async () => {
-            (storageService as any)._service = {
-                createProject: remoteCreate,
-                disconnect: jest.fn(),
-            };
-            (storageService as any).setState({
-                connectionPhase: 'ready',
-                connected: true,
-            });
-        });
-
-        (storageService as any)._isWrapper = true;
-        (storageService as any)._service = null;
-        (storageService as any).setState({
-            backend: 'service-worker',
-            connectionPhase: 'disconnected',
-            connected: false,
-            usingServiceWorker: true,
-        });
-
-        await storageService.createProject(projectId, projectStorageConfig);
-
-        expect(reconnectSpy).toHaveBeenCalledTimes(1);
-        expect(remoteCreate).toHaveBeenCalledTimes(1);
-        expect(storageService.state.connectionPhase).toBe('ready');
     });
 
     test("loadProject updates project phase on success and resets it on failure", async () => {
@@ -174,7 +133,7 @@ describe("StorageService base functionality", () => {
     test("commit returns a rejected promise when the storage request fails", async () => {
         const commitFailure = new Error('commit failed');
         (storageService as any)._service = {
-            _storageOperationRequest: jest.fn(async () => {
+            commit: jest.fn(async () => {
                 throw commitFailure;
             }),
             disconnect: jest.fn(),
@@ -256,13 +215,13 @@ describe("StorageService base functionality", () => {
             }),
         });
 
-        // Assertions based on StorageServiceActual._exectuteCommitRequest()
+        // Assertions based on StorageService._executeCommitRequest()
         expect(update).toBeDefined();
         expect(update.upsertedCommits).toBeDefined();
         expect(update.upsertedCommits!.length).toBe(1);
         expect(update.upsertedCommits![0].message).toBe("Test commit");
 
-        const newEntities = Object.values(update.upsertedCommits![0].deltaData!);
+        const newEntities = Object.values(update.upsertedCommits![0].delta_data!);
         expect(newEntities.length).toBe(2);
     });
 
@@ -271,26 +230,26 @@ describe("StorageService base functionality", () => {
         await storageService.createProject(projectId, projectStorageConfig);
         await storageService.loadProject(projectId, projectStorageConfig, () => { });
 
-        // Add a file blob
+        // Upload a file blob
         const blob = new Blob(['test content'], { type: 'text/plain' });
-        const fileData = await storageService.addFile(projectId, blob, '/test.txt', 'some-parent-id', { size: blob.size, mime_type: blob.type });
+        const result = await storageService.addFile(projectId, blob, '/test.txt');
 
-        expect(fileData).toBeDefined();
-        expect(fileData.id).toBeDefined();
-        expect(fileData.content.hash).toBeDefined();
+        expect(result).toBeDefined();
+        expect(result.hash).toBeDefined();
+        expect(result.path).toBeDefined();
 
         // Get the file blob
-        const retrievedBlob = await storageService.getFile(projectId, fileData.id, fileData.content.hash);
+        const retrievedBlob = await storageService.getFile(projectId, result.path);
         expect(retrievedBlob).toBeDefined();
         expect(retrievedBlob.size).toBe(blob.size);
         expect(retrievedBlob.type).toBe(blob.type);
         expect(await retrievedBlob.text()).toBe('test content');
 
         // Remove the file
-        await storageService.removeFile(projectId, fileData.id, fileData.content.hash);
+        await storageService.removeFile(projectId, result.path);
 
         // Verify it's removed by trying to get it again
-        await expect(storageService.getFile(projectId, fileData.id, fileData.content.hash)).rejects.toThrow();
+        await expect(storageService.getFile(projectId, result.path)).rejects.toThrow();
     });
     test("Squash old prefix commits by TTL", async () => {
         // Create and load project
@@ -327,7 +286,7 @@ describe("StorageService base functionality", () => {
         expect(commits1.length).toBe(2);
 
         // Identify c1 = the child of c0
-        const c1Meta = commits1.find(c => c.parentId === c0Id)!;
+        const c1Meta = commits1.find(c => c.parent_id === c0Id)!;
         expect(c1Meta).toBeDefined();
         const c1Id = c1Meta.id;
 
@@ -345,7 +304,7 @@ describe("StorageService base functionality", () => {
         expect(commits2.length).toBe(2);
 
         // Debug: let's see what we actually got
-        console.log('Commits after c2:', commits2.map(c => ({ id: c.id, parentId: c.parentId, timestamp: c.timestamp })));
+        console.log('Commits after c2:', commits2.map(c => ({ id: c.id, parentId: c.parent_id, timestamp: c.timestamp })));
         console.log('Expected c0Id:', c0Id, 'c1Id:', c1Id);
 
         // c0 should be deleted after squash
@@ -355,12 +314,12 @@ describe("StorageService base functionality", () => {
         // c1 should be updated with c0's parent (empty string) and aggregated delta
         const c1Updated = commits2.find(c => c.id === c1Id)!;
         expect(c1Updated).toBeDefined();
-        expect(c1Updated.parentId).toBe(''); // Should now have c0's parent (empty string)
+        expect(c1Updated.parent_id).toBe(''); // Should now have c0's parent (empty string)
 
         // c2 should remain unchanged - find it by looking for commit that's not c1
         const c2AfterSquash = commits2.find(c => c.id !== c1Id)!;
         expect(c2AfterSquash).toBeDefined();
-        expect(c2AfterSquash.parentId).toBe(c1Id); // Still points to c1
+        expect(c2AfterSquash.parent_id).toBe(c1Id); // Still points to c1
         const c2Id = c2AfterSquash.id;
 
         // The commit IDs should be c1 and c2
@@ -370,7 +329,7 @@ describe("StorageService base functionality", () => {
         expect(commitIds2.has(c2Id)).toBe(true);  // c2 kept
 
         // Head should still point to c2
-        const headId = u2.commitGraph.branches.find(b => b.name === "dev1")!.headCommitId!;
+        const headId = u2.commitGraph.branches.find(b => b.name === "dev1")!.head_commit_id!;
         expect(headId).toBe(c2Id);
 
         // Cleanup of Date.now spy handled by afterEach via jest.restoreAllMocks()

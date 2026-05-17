@@ -1,6 +1,7 @@
 import { IrrationalStorageOperation, Store, SearchFilter } from "./BaseStore"
 import { Entity, EntityData, getEntityClassByName } from "../../model/Entity"
 import { Change } from "../../model/Change"
+import { Delta } from "../../model/Delta"
 import { getLogger } from "../../logging"
 
 const log = getLogger('InMemoryRepository')
@@ -454,11 +455,19 @@ export class InMemoryStore extends Store {
             throw new IrrationalStorageOperation(`Entity with ID ${entity.id} already exists.`);
         }
 
-        return this.upsertToCache(entity, true);
+        const change = this.upsertToCache(entity, true);
+        if (this.onChanges && !this._applyingInternally) {
+            this.onChanges(Delta.fromChanges([change]));
+        }
+        return change;
     }
 
     updateOne(entity: Entity<EntityData>): Change {
-        return this.upsertToCache(entity, false);
+        const change = this.upsertToCache(entity, false);
+        if (this.onChanges && !this._applyingInternally && !change.isEmpty()) {
+            this.onChanges(Delta.fromChanges([change]));
+        }
+        return change;
     }
 
     removeOne(entity: Entity<EntityData>): Change {
@@ -472,7 +481,11 @@ export class InMemoryStore extends Store {
         }
 
         this.removeFromCache(oldEntity);
-        return Change.delete(entity);
+        const change = Change.delete(entity);
+        if (this.onChanges && !this._applyingInternally) {
+            this.onChanges(Delta.fromChanges([change]));
+        }
+        return change;
     }
 
     *find<T extends Entity<EntityData>>(filter: SearchFilter = {}): Generator<T> {
@@ -499,7 +512,7 @@ export class InMemoryStore extends Store {
             // Fallback to full scan using the id index
             const { indexes } = this.indexManager.indexStorage;
             const allEntitiesIndex = indexes.get("id");
-            console.log('Fallback to full scan, id index size:', allEntitiesIndex?.size);
+            log.info('Fallback to full scan, id index size:', allEntitiesIndex?.size);
             if (allEntitiesIndex) {
                 candidates = Array.from(allEntitiesIndex.values()) as Entity<EntityData>[];
             }
@@ -550,5 +563,6 @@ export class InMemoryStore extends Store {
         for (const index of indexes.values()) {
             index.clear();
         }
+        this._loaded = false;
     }
 }

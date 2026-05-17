@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "python-fusion"
-version = "0.9.0"
+version = "0.10.0"
 description = "An experimental state manager"
 authors = [{ name = "Petko Dichev", email = "pditchev@gmail.com" }]
 license = { text = "GPLv3" }
@@ -16,7 +16,7 @@ classifiers = [
     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Operating System :: OS Independent",
 ]
-dependencies = ["attrs", "peewee", "pydantic"]
+dependencies = ["attrs", "peewee"]
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-asyncio", "black", "isort", "pre-commit"]

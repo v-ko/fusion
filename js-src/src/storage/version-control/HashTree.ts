@@ -4,6 +4,7 @@ import { dumpToDict } from '../../model/Entity';
 import { cryptoModule } from "../../util/base";
 import { getLogger } from "../../logging";
 import { Delta } from "../../model/Delta";
+import { canonicalJson } from "../../util/canonicalJson";
 
 const log = getLogger('HashTree')
 
@@ -16,38 +17,9 @@ export class HangingSubtreesError extends Error {
     }
 }
 
-function sortObjectProperties(obj: any, depth: number = 1): any {
-    if (depth > 3) {
-        throw new Error("Depth exceeded: This function supports sorting up to 3 levels deep only.");
-    }
-
-    if (Array.isArray(obj)) {
-        return obj.map(item =>
-            typeof item === 'object' && item !== null ?
-                sortObjectProperties(item, depth + 1) :
-                item
-        );
-    }
-
-    if (typeof obj !== 'object' || obj === null) {
-        return obj;
-    }
-
-    const sorted: { [key: string]: any } = {};
-    Object.keys(obj).sort().forEach(key => {
-        const value = obj[key];
-        sorted[key] = typeof value === 'object' && value !== null ?
-            sortObjectProperties(value, depth + 1) :
-            value;
-    });
-
-    return sorted;
-}
-
 function getEntityDataString(entity: any): string {
     const data = dumpToDict(entity);
-    const sortedData = sortObjectProperties(data);
-    return JSON.stringify(sortedData);
+    return canonicalJson(data);
 }
 
 // Tree structure:
@@ -275,7 +247,7 @@ export class HashTree {
 
         if (!parent) {
             // Parent not in the tree yet — buffer for later reattachment
-            log.info('Parent not found, adding to tmp subtrees', node.parentId)
+            // log.info('Parent not found, adding to tmp subtrees', node.parentId)
             if (!this._tmpSubtrees[node.parentId]) {
                 this._tmpSubtrees[node.parentId] = [];
             }
@@ -289,7 +261,7 @@ export class HashTree {
         // If some of the tmp subtree roots have this node as a parent
         // reattach them properly
         if (this._tmpSubtrees[node.entityId]) {
-            log.info('Reattaching tmp subtrees', node.entityId)
+            // log.info('Reattaching tmp subtrees', node.entityId)
             let subtree = this._tmpSubtrees[node.entityId];
             delete this._tmpSubtrees[node.entityId];
 

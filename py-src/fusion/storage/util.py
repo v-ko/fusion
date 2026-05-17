@@ -1,4 +1,4 @@
-from fusion.libs.entity import Entity, dump_to_dict
+from fusion.libs.model import Entity, dump_to_dict
 
 
 def envelope(**kwargs) -> dict:

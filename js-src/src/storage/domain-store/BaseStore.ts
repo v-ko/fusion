@@ -21,6 +21,9 @@ export class IrrationalStorageOperation extends Error {
 }
 
 export abstract class Store {
+    onChanges: ((delta: Delta, origin?: string) => void) | null = null;
+    protected _applyingInternally: boolean = false;
+
     abstract insertOne(entity: Entity<EntityData>): Change;
 
     abstract find(filter: SearchFilter): Generator<Entity<EntityData>>;
@@ -41,7 +44,22 @@ export abstract class Store {
     update(entities: Entity<EntityData>[]): Change[] {
         return entities.map(entity => this.updateOne(entity))
     }
-    applyChange(change: Change): Change {
+    /** Apply a single change, firing onChanges with the given origin. */
+    applyChange(change: Change, origin?: string): Change {
+        this._applyingInternally = true;
+        let appliedChange: Change;
+        try {
+            appliedChange = this._applyChangeCore(change);
+        } finally {
+            this._applyingInternally = false;
+        }
+        if (this.onChanges && !appliedChange.isEmpty()) {
+            this.onChanges(Delta.fromChanges([appliedChange]), origin);
+        }
+        return appliedChange;
+    }
+
+    private _applyChangeCore(change: Change): Change {
         if (change.isCreate()) {
             let entityState = loadFromDict(change.forwardComponent as SerializedEntityData);
             return this.insertOne(entityState);
@@ -61,28 +79,57 @@ export abstract class Store {
         }
         return change;
     }
+
     data(): SerializedStoreData {
         const entities = Array.from(this.find({}));
         return { entities: entities.map(entity => dumpToDict(entity)) };
     }
-    loadData(data: SerializedStoreData): void {
-        for (const entityData of data.entities) {
-            const entity = loadFromDict(entityData);
-            this.insertOne(entity);
+
+    abstract clear(): void;
+
+    protected _loaded: boolean = false;
+
+    /** Load initial data into an empty (or cleared) store. Can only be called once, or again after clear(). */
+    loadData(entities: Entity<EntityData>[], origin?: string): Delta {
+        if (this._loaded) {
+            throw new Error('Store already has data loaded. Call clear() before loading again.');
         }
+        this._applyingInternally = true;
+        const changes: Change[] = [];
+        try {
+            for (const entity of entities) {
+                changes.push(this.insertOne(entity));
+            }
+        } finally {
+            this._applyingInternally = false;
+            this._loaded = true;
+        }
+
+        return Delta.fromChanges(changes);
     }
 
-    applyDelta(delta: Delta, skipIrrationalOperations: boolean = false): Delta {
+    /** Apply a delta, firing onChanges once at the end with the given origin. */
+    applyDelta(delta: Delta, origin?: string, skipIrrationalOperations: boolean = false): Delta {
+        this._applyingInternally = true;
+
         const appliedDelta = new Delta({});
-        for (const change of delta.changes()) {
-            try {
-                const appliedChange = this.applyChange(change);
-                appliedDelta.addChangeFromData(appliedChange.data);
-            } catch (error) {
-                if (!skipIrrationalOperations || !(error instanceof IrrationalStorageOperation)) {
-                    throw error;
+        try {
+            for (const change of delta.changes()) {
+                try {
+                    const appliedChange = this._applyChangeCore(change);
+                    appliedDelta.addChangeFromData(appliedChange.data);
+                } catch (error) {
+                    if (!skipIrrationalOperations || !(error instanceof IrrationalStorageOperation)) {
+                        throw error;
+                    }
                 }
             }
+        } finally {
+            this._applyingInternally = false;
+        }
+
+        if (this.onChanges && !appliedDelta.isEmpty()) {
+            this.onChanges(appliedDelta, origin);
         }
         return appliedDelta;
     }

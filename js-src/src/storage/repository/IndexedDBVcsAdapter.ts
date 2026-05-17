@@ -31,10 +31,6 @@ interface RepoDB extends DBSchema {
         value: { commitId: string, delta: DeltaData };
         indexes: { 'by-commitId': string };
     };
-    properties: {
-        key: string;
-        value: object;
-    };
 }
 
 export class IndexedDBVcsAdapter implements VcsAdapter {
@@ -67,8 +63,6 @@ export class IndexedDBVcsAdapter implements VcsAdapter {
                 branchesStore.createIndex('by-name', 'name');
                 commitsStore.createIndex('by-id', 'id');
                 deltasStore.createIndex('by-commitId', 'commitId');
-
-                db.createObjectStore('properties');
             },
             blocked() {
                 log.error(`IndexedDB blocked - another connection is still open`);
@@ -156,7 +150,7 @@ export class IndexedDBVcsAdapter implements VcsAdapter {
                         const delta = await deltasStore.get(commitData.id);
                         if (delta) {
                             // commitData.deltaData = delta.delta;
-                            commits.push(new Commit({...commitData, deltaData: delta.delta}));
+                            commits.push(new Commit({...commitData, delta_data: delta.delta}));
                         } else {
                             log.error('Delta not found for commit ' + commitData.id);
                         }
@@ -207,7 +201,7 @@ export class IndexedDBVcsAdapter implements VcsAdapter {
         for (let commit of updatedCommits) {
             await commitsStore.delete(commit.id);
             await deltasStore.delete(commit.id);
-            await commitsStore.add(commit.metadata());
+            await commitsStore.add(commit.metadata().data());
             if (!commit.deltaData) {
                 throw new Error('Delta data missing for updated commit ' + commit.id);
             }
@@ -217,7 +211,7 @@ export class IndexedDBVcsAdapter implements VcsAdapter {
         // Add new commits
         for (let commit of addedCommits) {
             log.info('Adding commit', commit)
-            await commitsStore.add(commit.metadata());
+            await commitsStore.add(commit.metadata().data());
             if (!commit.deltaData) {
                 throw new Error('Delta data missing for commit ' + commit.id);
             }
@@ -257,14 +251,4 @@ export class IndexedDBVcsAdapter implements VcsAdapter {
         log.info('Erased IndexedDB storage for project', this._projectId);
     }
 
-    private static readonly PROPERTIES_KEY = 'project';
-
-    async getProjectProperties(): Promise<object | null> {
-        const value = await this.db.get('properties', IndexedDBVcsAdapter.PROPERTIES_KEY);
-        return (value as Record<string, unknown>) ?? null;
-    }
-
-    async setProjectProperties(properties: object): Promise<void> {
-        await this.db.put('properties', properties, IndexedDBVcsAdapter.PROPERTIES_KEY);
-    }
 }

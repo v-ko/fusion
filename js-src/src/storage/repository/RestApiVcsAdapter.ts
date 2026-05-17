@@ -9,22 +9,26 @@ interface RepoUpdateData {
 }
 
 export class RestApiVcsAdapter implements VcsAdapter {
-    private _projectId: string;
+    private _pathPrefix: string;
     private _localBranchName: string;
     private _baseUrl: string;
     private _auth: RestApiAuthConfig;
     private _cachedCommitGraph: CommitGraph | null = null;
 
     constructor(
-        projectId: string,
+        pathPrefix: string,
         localBranchName: string,
         baseUrl: string,
         auth: RestApiAuthConfig,
     ) {
-        this._projectId = projectId;
+        this._pathPrefix = pathPrefix;
         this._localBranchName = localBranchName;
         this._baseUrl = baseUrl;
         this._auth = auth;
+    }
+
+    get localBranchName(): string {
+        return this._localBranchName;
     }
 
     private _headers(): HeadersInit {
@@ -61,7 +65,7 @@ export class RestApiVcsAdapter implements VcsAdapter {
         params.set("branch", this._localBranchName);
 
         const url = this._url(
-            `/desktop/storage/project/${encodeURIComponent(this._projectId)}/commit-graph`,
+            `${this._pathPrefix}/commit-graph`,
             params,
         );
         const commitGraphData = await this._getJson<CommitGraphData>(url);
@@ -81,7 +85,7 @@ export class RestApiVcsAdapter implements VcsAdapter {
         }
 
         const url = this._url(
-            `/desktop/storage/project/${encodeURIComponent(this._projectId)}/commits`,
+            `${this._pathPrefix}/commits`,
             params,
         );
         const commitDataList = await this._getJson<CommitData[]>(url);
@@ -126,10 +130,10 @@ export class RestApiVcsAdapter implements VcsAdapter {
             if (!commitGraph.branch(branch.name)) {
                 commitGraph.createBranch(branch.name);
             }
-            commitGraph.setBranch(branch.name, branch.headCommitId);
+            commitGraph.setBranch(branch.name, branch.head_commit_id);
         });
         update.updatedBranches.forEach((branch) => {
-            commitGraph.setBranch(branch.name, branch.headCommitId);
+            commitGraph.setBranch(branch.name, branch.head_commit_id);
         });
         update.removedBranches.forEach((branch) => {
             if (commitGraph.branch(branch.name)) {
@@ -151,7 +155,7 @@ export class RestApiVcsAdapter implements VcsAdapter {
 
     private async applyRepoUpdateData(updateData: RepoUpdateData): Promise<void> {
         const url = this._url(
-            `/desktop/storage/project/${encodeURIComponent(this._projectId)}/repo-update`,
+            `${this._pathPrefix}/repo-update`,
         );
         const response = await fetch(url, {
             method: "POST",
@@ -176,42 +180,4 @@ export class RestApiVcsAdapter implements VcsAdapter {
         // Read-only adapter does not own persistent storage.
     }
 
-    private _projectUrl(path: string): string {
-        return `${this._baseUrl}/desktop/projects/${encodeURIComponent(this._projectId)}${path}`;
-    }
-
-    async getProjectProperties(): Promise<object | null> {
-        const url = this._projectUrl('/properties');
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: this._headers(),
-        });
-        if (response.status === 404) {
-            return null;
-        }
-        if (!response.ok) {
-            throw new Error(
-                `Failed to load project properties (${response.status} ${response.statusText})`,
-            );
-        }
-        const payload = await response.json() as object | null;
-        return payload ?? null;
-    }
-
-    async setProjectProperties(properties: object): Promise<void> {
-        const url = this._projectUrl('/properties');
-        const response = await fetch(url, {
-            method: 'PUT',
-            headers: {
-                ...this._headers(),
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(properties),
-        });
-        if (!response.ok) {
-            throw new Error(
-                `Failed to save project properties (${response.status} ${response.statusText})`,
-            );
-        }
-    }
 }
